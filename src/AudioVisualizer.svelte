@@ -1,149 +1,154 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   
+  // Props
   export let audioUrl = null;
-  export let height = 80;
+  export let height = 100;
   export let barWidth = 2;
   export let barGap = 1;
-  export let barColor = '#00b8a9';
+  export let barColor = '#ccff00';
+  export let backgroundColor = '#2a2a2a';
   
+  // Local state
   let canvas;
+  let canvasContext;
   let audioContext;
   let analyser;
   let source;
-  let audio;
   let animationId;
-  let isPlaying = false;
+  let isInitialized = false;
   
-  onMount(() => {
+  // Initialize audio visualization
+  async function initializeVisualization() {
+    if (!audioUrl || !canvas || isInitialized) return;
+    
+    try {
+      // Create audio context
+      audioContext = new (window.AudioContext || window.webkitAudioContext)();
+      
+      // Create analyser node
+      analyser = audioContext.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.8;
+      
+      // Get canvas context
+      canvasContext = canvas.getContext('2d');
+      
+      // Load audio
+      const response = await fetch(audioUrl);
+      const arrayBuffer = await response.arrayBuffer();
+      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
+      
+      // Create source node
+      source = audioContext.createBufferSource();
+      source.buffer = audioBuffer;
+      
+      // Connect nodes
+      source.connect(analyser);
+      analyser.connect(audioContext.destination);
+      
+      // Set flag
+      isInitialized = true;
+      
+      // Start visualization
+      startVisualization();
+      
+      console.log('Audio visualization initialized');
+    } catch (error) {
+      console.error('Error initializing audio visualization:', error);
+    }
+  }
+  
+  // Start visualization
+  function startVisualization() {
+    if (!isInitialized) return;
+    
+    // Set canvas size
+    canvas.width = canvas.clientWidth;
+    canvas.height = height;
+    
+    // Start animation
+    animationFrame();
+  }
+  
+  // Animation frame
+  function animationFrame() {
+    // Request next frame
+    animationId = requestAnimationFrame(animationFrame);
+    
+    // Get frequency data
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    analyser.getByteFrequencyData(dataArray);
+    
+    // Clear canvas
+    canvasContext.fillStyle = backgroundColor;
+    canvasContext.fillRect(0, 0, canvas.width, canvas.height);
+    
+    // Calculate bar count and width
+    const totalBars = Math.floor(canvas.width / (barWidth + barGap));
+    const barCount = Math.min(totalBars, bufferLength);
+    
+    // Draw bars
+    for (let i = 0; i < barCount; i++) {
+      // Calculate bar height
+      const barHeight = (dataArray[i] / 255) * canvas.height;
+      
+      // Calculate bar position
+      const x = i * (barWidth + barGap);
+      const y = canvas.height - barHeight;
+      
+      // Draw bar
+      canvasContext.fillStyle = barColor;
+      canvasContext.fillRect(x, y, barWidth, barHeight);
+    }
+  }
+  
+  // Handle window resize
+  function handleResize() {
     if (!canvas) return;
     
-    // Initialize audio context
-    audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    analyser = audioContext.createAnalyser();
-    analyser.fftSize = 256;
+    // Update canvas size
+    canvas.width = canvas.clientWidth;
+    canvas.height = height;
+  }
+  
+  onMount(() => {
+    // Initialize visualization when component is mounted
+    initializeVisualization();
     
-    // Set up canvas
-    const ctx = canvas.getContext('2d');
-    
-    // Load audio if URL is provided
-    if (audioUrl) {
-      loadAudio(audioUrl);
-    }
+    // Add resize listener
+    window.addEventListener('resize', handleResize);
   });
   
   onDestroy(() => {
-    cancelAnimationFrame(animationId);
+    // Stop animation
+    if (animationId) {
+      cancelAnimationFrame(animationId);
+    }
+    
+    // Disconnect audio nodes
     if (source) {
       source.disconnect();
     }
-    if (audio) {
-      audio.pause();
-      audio.src = '';
+    
+    if (analyser) {
+      analyser.disconnect();
     }
+    
+    // Close audio context
     if (audioContext) {
       audioContext.close();
     }
+    
+    // Remove resize listener
+    window.removeEventListener('resize', handleResize);
   });
   
-  function loadAudio(url) {
-    if (!audioContext || !analyser) return;
-    
-    // Create audio element
-    audio = new Audio();
-    audio.crossOrigin = 'anonymous';
-    audio.src = url;
-    audio.addEventListener('canplay', () => {
-      // Connect audio to analyser
-      source = audioContext.createMediaElementSource(audio);
-      source.connect(analyser);
-      analyser.connect(audioContext.destination);
-    });
-    
-    // Set up play/pause events
-    audio.addEventListener('play', () => {
-      isPlaying = true;
-      visualize();
-    });
-    
-    audio.addEventListener('pause', () => {
-      isPlaying = false;
-      cancelAnimationFrame(animationId);
-    });
-    
-    audio.addEventListener('ended', () => {
-      isPlaying = false;
-      cancelAnimationFrame(animationId);
-    });
-  }
-  
-  function visualize() {
-    if (!canvas || !analyser) return;
-    
-    const ctx = canvas.getContext('2d');
-    const bufferLength = analyser.frequencyBinCount;
-    const dataArray = new Uint8Array(bufferLength);
-    
-    const WIDTH = canvas.width;
-    const HEIGHT = canvas.height;
-    
-    function draw() {
-      animationId = requestAnimationFrame(draw);
-      
-      analyser.getByteFrequencyData(dataArray);
-      
-      ctx.fillStyle = 'rgba(18, 18, 18, 0.2)';
-      ctx.fillRect(0, 0, WIDTH, HEIGHT);
-      
-      const barCount = Math.floor(WIDTH / (barWidth + barGap));
-      const barStep = Math.ceil(bufferLength / barCount);
-      
-      for (let i = 0; i < barCount; i++) {
-        const dataIndex = Math.min(i * barStep, bufferLength - 1);
-        const barHeight = (dataArray[dataIndex] / 255) * HEIGHT;
-        
-        const x = i * (barWidth + barGap);
-        const y = HEIGHT - barHeight;
-        
-        // Create gradient for bars
-        const gradient = ctx.createLinearGradient(0, HEIGHT, 0, 0);
-        gradient.addColorStop(0, barColor);
-        gradient.addColorStop(1, '#ccff00');
-        
-        ctx.fillStyle = gradient;
-        ctx.fillRect(x, y, barWidth, barHeight);
-      }
-    }
-    
-    draw();
-  }
-  
-  // Function used by parent component
-  function togglePlay() {
-    if (!audio) return;
-    
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      // Resume AudioContext if it was suspended
-      if (audioContext.state === 'suspended') {
-        audioContext.resume();
-      }
-      audio.play();
-    }
-  }
-  
-  // Update audio URL when prop changes
+  // Update when audioUrl changes
   $: {
-    if (audioUrl && canvas) {
-      if (source) {
-        source.disconnect();
-      }
-      if (audio) {
-        audio.pause();
-        audio.src = '';
-      }
-      loadAudio(audioUrl);
+    if (audioUrl && canvas && !isInitialized) {
+      initializeVisualization();
     }
   }
 </script>
@@ -151,11 +156,10 @@
 <style>
   .visualizer-container {
     width: 100%;
-    background-color: #121212;
     border-radius: 4px;
     overflow: hidden;
-    margin-top: 15px;
-    border: 1px solid #333;
+    margin-top: 10px;
+    margin-bottom: 10px;
   }
   
   canvas {
@@ -165,9 +169,5 @@
 </style>
 
 <div class="visualizer-container">
-  <canvas 
-    bind:this={canvas} 
-    width={window.innerWidth} 
-    height={height}
-  ></canvas>
+  <canvas bind:this={canvas}></canvas>
 </div>

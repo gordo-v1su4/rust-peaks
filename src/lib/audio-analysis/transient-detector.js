@@ -5,7 +5,7 @@
  * that indicate transients (like drum hits, note attacks, etc.)
  */
 
-export class TransientDetector {
+class TransientDetector {
   /**
    * Create a new TransientDetector
    * @param {Object} options - Configuration options
@@ -121,3 +121,5 @@ export class TransientDetector {
     return segments;
   }
 }
+
+export default TransientDetector;

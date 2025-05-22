@@ -5,10 +5,10 @@
  * to identify different sections of a song (intro, verse, chorus, etc.)
  */
 
-import { TransientDetector } from './transient-detector.js';
-import { SpectralAnalyzer } from './spectral-analyzer.js';
+import TransientDetector from './transient-detector.js';
+import SpectralAnalyzer from './spectral-analyzer.js';
 
-export class SongStructureAnalyzer {
+class SongStructureAnalyzer {
   /**
    * Create a new SongStructureAnalyzer
    * @param {Object} options - Configuration options
@@ -447,3 +447,5 @@ export class SongStructureAnalyzer {
     return sections;
   }
 }
+
+export default SongStructureAnalyzer;

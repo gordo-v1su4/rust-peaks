@@ -1,39 +1,61 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   
-  export let show = false;
-  export let region = null;
-  export let projectName = 'Untitled Project';
-  
   const dispatch = createEventDispatcher();
   
-  let exportFormat = 'mp3';
-  let exportQuality = 'high';
-  let exportName = '';
+  // Props
+  export let region = null;
+  export let show = false;
   
-  $: if (region && region.id) {
-    // Generate a default export name based on project and region
-    exportName = `${projectName.replace(/\s+/g, '-').toLowerCase()}-region-${region.id.substring(0, 6)}`;
+  // Local state
+  let name = '';
+  let format = 'wav';
+  let quality = 'high';
+  
+  // Reset form when dialog is shown
+  $: if (show) {
+    // Generate default name based on region
+    name = region ? `Region_${formatTime(region.start)}-${formatTime(region.end)}` : 'Export';
   }
   
-  function closeDialog() {
+  // Format time in seconds to MM:SS format
+  function formatTime(seconds) {
+    if (isNaN(seconds)) return '00:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60);
+    return `${mins.toString().padStart(2, '0')}_${secs.toString().padStart(2, '0')}`;
+  }
+  
+  // Handle form submission
+  function handleSubmit() {
+    // Dispatch export event with form data
+    dispatch('export', {
+      region,
+      name,
+      format,
+      quality
+    });
+    
+    // Close dialog
     show = false;
   }
   
-  function handleExport() {
-    dispatch('export', {
-      region,
-      format: exportFormat,
-      quality: exportQuality,
-      name: exportName || `export-${Date.now()}`
-    });
-    
-    closeDialog();
+  // Handle cancel
+  function handleCancel() {
+    show = false;
   }
   
+  // Handle click outside
+  function handleClickOutside(event) {
+    if (event.target.classList.contains('dialog-overlay')) {
+      handleCancel();
+    }
+  }
+  
+  // Handle keydown
   function handleKeydown(event) {
     if (event.key === 'Escape') {
-      closeDialog();
+      handleCancel();
     }
   }
 </script>
@@ -43,153 +65,66 @@
     position: fixed;
     top: 0;
     left: 0;
-    right: 0;
-    bottom: 0;
+    width: 100%;
+    height: 100%;
     background-color: rgba(0, 0, 0, 0.7);
     display: flex;
-    align-items: center;
     justify-content: center;
+    align-items: center;
     z-index: 1000;
   }
   
   .dialog {
-    background-color: #18181b;
+    background-color: #2a2a2a;
     border-radius: 8px;
-    width: 90%;
-    max-width: 400px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.5);
-    border: 1px solid #3f3f46;
+    padding: 20px;
+    width: 400px;
+    max-width: 90%;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
   }
   
   .dialog-header {
-    padding: 15px 20px;
-    border-bottom: 1px solid #3f3f46;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
+    margin-bottom: 20px;
   }
   
   .dialog-title {
-    font-size: 16px;
-    font-weight: 600;
-    color: #e6e6e6;
+    color: #00b8a9;
     margin: 0;
-  }
-  
-  .close-button {
-    background: transparent;
-    border: none;
-    color: #a1a1aa;
-    font-size: 18px;
-    cursor: pointer;
-    padding: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-  }
-  
-  .close-button:hover {
-    color: #e6e6e6;
-  }
-  
-  .dialog-content {
-    padding: 20px;
+    font-size: 20px;
   }
   
   .form-group {
     margin-bottom: 15px;
   }
   
-  .form-label {
+  label {
     display: block;
     margin-bottom: 5px;
-    font-size: 14px;
-    color: #a1a1aa;
+    color: #ccc;
   }
   
-  .form-input {
+  input, select {
     width: 100%;
     padding: 8px 10px;
+    background-color: #444;
+    border: 1px solid #555;
     border-radius: 4px;
-    border: 1px solid #3f3f46;
-    background-color: #27272a;
-    color: #e6e6e6;
+    color: #fff;
     font-size: 14px;
   }
   
-  .form-input:focus {
+  input:focus, select:focus {
     outline: none;
     border-color: #00b8a9;
-  }
-  
-  .form-select {
-    width: 100%;
-    padding: 8px 10px;
-    border-radius: 4px;
-    border: 1px solid #3f3f46;
-    background-color: #27272a;
-    color: #e6e6e6;
-    font-size: 14px;
-    appearance: none;
-    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23a1a1aa' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
-    background-repeat: no-repeat;
-    background-position: right 10px center;
-    background-size: 16px;
-  }
-  
-  .form-select:focus {
-    outline: none;
-    border-color: #00b8a9;
-  }
-  
-  .dialog-footer {
-    padding: 15px 20px;
-    border-top: 1px solid #3f3f46;
-    display: flex;
-    justify-content: flex-end;
-    gap: 10px;
-  }
-  
-  .button {
-    padding: 8px 16px;
-    border-radius: 4px;
-    font-size: 14px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s;
-  }
-  
-  .cancel-button {
-    background-color: transparent;
-    color: #a1a1aa;
-    border: 1px solid #3f3f46;
-  }
-  
-  .cancel-button:hover {
-    background-color: #27272a;
-    color: #e6e6e6;
-  }
-  
-  .export-button {
-    background-color: #00b8a9;
-    color: #121212;
-    border: 1px solid transparent;
-  }
-  
-  .export-button:hover {
-    background-color: #00cebb;
-    box-shadow: 0 2px 5px rgba(0, 184, 169, 0.3);
   }
   
   .region-info {
-    background-color: #27272a;
+    background-color: #1e1e1e;
     border-radius: 4px;
     padding: 10px;
     margin-bottom: 15px;
-    font-size: 13px;
-    color: #a1a1aa;
+    font-family: monospace;
+    font-size: 14px;
   }
   
   .region-info-item {
@@ -198,82 +133,130 @@
     margin-bottom: 5px;
   }
   
+  .region-info-item:last-child {
+    margin-bottom: 0;
+  }
+  
   .region-info-label {
-    font-weight: 500;
+    color: #888;
   }
   
   .region-info-value {
-    color: #e6e6e6;
+    color: #ccff00;
+  }
+  
+  .dialog-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 20px;
+  }
+  
+  button {
+    padding: 8px 15px;
+    border: none;
+    border-radius: 4px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: background-color 0.2s;
+  }
+  
+  .cancel-button {
+    background-color: #444;
+    color: #fff;
+  }
+  
+  .cancel-button:hover {
+    background-color: #555;
+  }
+  
+  .export-button {
+    background-color: #00b8a9;
+    color: #1e1e1e;
+  }
+  
+  .export-button:hover {
+    background-color: #00a598;
   }
 </style>
 
 {#if show}
-  <div 
-    class="dialog-overlay" 
-    on:click={closeDialog}
+  <div
+    class="dialog-overlay"
+    role="presentation"
+    tabindex="-1"
+    on:click={handleClickOutside}
     on:keydown={handleKeydown}
   >
-    <div 
-      class="dialog" 
-      on:click|stopPropagation={() => {}}
-    >
+    <div class="dialog" role="dialog" aria-labelledby="dialog-title">
       <div class="dialog-header">
-        <h3 class="dialog-title">Export Region</h3>
-        <button class="close-button" on:click={closeDialog}>×</button>
+        <h2 id="dialog-title" class="dialog-title">Export Audio Region</h2>
       </div>
       
-      <div class="dialog-content">
-        {#if region}
-          <div class="region-info">
-            <div class="region-info-item">
-              <span class="region-info-label">Start:</span>
-              <span class="region-info-value">{region.start.toFixed(2)}s</span>
-            </div>
-            <div class="region-info-item">
-              <span class="region-info-label">End:</span>
-              <span class="region-info-value">{region.end.toFixed(2)}s</span>
-            </div>
-            <div class="region-info-item">
-              <span class="region-info-label">Duration:</span>
-              <span class="region-info-value">{(region.end - region.start).toFixed(2)}s</span>
-            </div>
+      {#if region}
+        <div class="region-info">
+          <div class="region-info-item">
+            <span class="region-info-label">Start:</span>
+            <span class="region-info-value">{region.start.toFixed(2)}s</span>
           </div>
-        {/if}
-        
+          <div class="region-info-item">
+            <span class="region-info-label">End:</span>
+            <span class="region-info-value">{region.end.toFixed(2)}s</span>
+          </div>
+          <div class="region-info-item">
+            <span class="region-info-label">Duration:</span>
+            <span class="region-info-value">{(region.end - region.start).toFixed(2)}s</span>
+          </div>
+        </div>
+      {/if}
+      
+      <form on:submit|preventDefault={handleSubmit}>
         <div class="form-group">
-          <label class="form-label" for="export-name">Export Name</label>
+          <label for="export-name">Name</label>
           <input 
             type="text" 
             id="export-name" 
-            class="form-input" 
-            bind:value={exportName} 
-            placeholder="Enter a name for the export"
+            bind:value={name} 
+            required
           />
         </div>
         
         <div class="form-group">
-          <label class="form-label" for="export-format">Format</label>
-          <select id="export-format" class="form-select" bind:value={exportFormat}>
-            <option value="mp3">MP3</option>
+          <label for="export-format">Format</label>
+          <select id="export-format" bind:value={format}>
             <option value="wav">WAV</option>
+            <option value="mp3">MP3</option>
             <option value="ogg">OGG</option>
+            <option value="flac">FLAC</option>
           </select>
         </div>
         
         <div class="form-group">
-          <label class="form-label" for="export-quality">Quality</label>
-          <select id="export-quality" class="form-select" bind:value={exportQuality}>
-            <option value="high">High (320kbps)</option>
-            <option value="medium">Medium (192kbps)</option>
+          <label for="export-quality">Quality</label>
+          <select id="export-quality" bind:value={quality}>
             <option value="low">Low (128kbps)</option>
+            <option value="medium">Medium (256kbps)</option>
+            <option value="high">High (320kbps)</option>
+            <option value="lossless">Lossless</option>
           </select>
         </div>
-      </div>
-      
-      <div class="dialog-footer">
-        <button class="button cancel-button" on:click={closeDialog}>Cancel</button>
-        <button class="button export-button" on:click={handleExport}>Export</button>
-      </div>
+        
+        <div class="dialog-footer">
+          <button 
+            type="button" 
+            class="cancel-button" 
+            on:click={handleCancel}
+          >
+            Cancel
+          </button>
+          <button 
+            type="submit" 
+            class="export-button"
+          >
+            Export
+          </button>
+        </div>
+      </form>
     </div>
   </div>
 {/if}

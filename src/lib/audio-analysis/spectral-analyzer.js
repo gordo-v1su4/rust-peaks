@@ -5,7 +5,7 @@
  * to identify characteristics that can help determine song sections.
  */
 
-export class SpectralAnalyzer {
+class SpectralAnalyzer {
   /**
    * Create a new SpectralAnalyzer
    * @param {Object} options - Configuration options
@@ -230,3 +230,5 @@ export class SpectralAnalyzer {
     return boundaries;
   }
 }
+
+export default SpectralAnalyzer;

@@ -1,0 +1,267 @@
+/* Main CSS for Audio Peaks Application */
+
+:root {
+  /* Color palette */
+  --primary-color: #00b8a9;
+  --secondary-color: #4b5eab;
+  --accent-color: #ccff00;
+  --dark-bg: #1e1e1e;
+  --darker-bg: #121212;
+  --light-text: #ffffff;
+  --medium-gray: #444444;
+  --light-gray: #888888;
+  --error-color: #ff5252;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background-color: var(--darker-bg);
+  color: var(--light-text);
+  margin: 0;
+  padding: 0;
+  line-height: 1.6;
+}
+
+#app {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+header {
+  text-align: center;
+  margin-bottom: 30px;
+}
+
+header h1 {
+  color: var(--primary-color);
+  margin-bottom: 5px;
+}
+
+header p {
+  color: var(--light-gray);
+  margin-top: 0;
+}
+
+section {
+  margin-bottom: 30px;
+  background-color: var(--dark-bg);
+  border-radius: 8px;
+  padding: 20px;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+
+h2 {
+  color: var(--primary-color);
+  margin-top: 0;
+  border-bottom: 1px solid var(--medium-gray);
+  padding-bottom: 10px;
+  margin-bottom: 20px;
+}
+
+h3 {
+  color: var(--accent-color);
+  margin-top: 20px;
+  margin-bottom: 10px;
+}
+
+/* File upload styling */
+#audio-file-input {
+  width: 100%;
+  padding: 10px;
+  background-color: var(--medium-gray);
+  border-radius: 4px;
+  border: none;
+  color: var(--light-text);
+}
+
+/* Waveform container */
+#waveform-container {
+  height: 200px;
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* Control rows */
+.control-row {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  margin-bottom: 15px;
+  flex-wrap: wrap;
+}
+
+/* Button styling */
+button {
+  background-color: var(--primary-color);
+  color: var(--dark-bg);
+  border: none;
+  border-radius: 4px;
+  padding: 8px 15px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: background-color 0.2s, transform 0.1s;
+}
+
+button:hover {
+  background-color: rgba(0, 184, 169, 0.8);
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+#play-button, #stop-button {
+  min-width: 80px;
+}
+
+#detect-bpm-button {
+  background-color: var(--secondary-color);
+}
+
+#detect-key-button {
+  background-color: #6a11cb;
+}
+
+#detect-transients-button {
+  background-color: #11cb6a;
+}
+
+.reset-button {
+  background-color: var(--error-color);
+  color: white;
+  width: 100%;
+  margin-top: 20px;
+  padding: 10px;
+}
+
+.reset-button:hover {
+  background-color: rgba(255, 82, 82, 0.8);
+}
+
+/* Slider styling */
+input[type="range"] {
+  -webkit-appearance: none;
+  width: 100%;
+  height: 6px;
+  background: var(--medium-gray);
+  border-radius: 3px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  background: var(--primary-color);
+  border-radius: 50%;
+  cursor: pointer;
+}
+
+input[type="range"]::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  background: var(--primary-color);
+  border-radius: 50%;
+  cursor: pointer;
+  border: none;
+}
+
+/* Label styling */
+label {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  gap: 5px;
+}
+
+/* Time display */
+#time-display {
+  font-family: monospace;
+  font-size: 1.1em;
+  margin-left: auto;
+}
+
+/* Results display */
+.results-display {
+  display: flex;
+  gap: 20px;
+  margin-top: 15px;
+}
+
+.result-item {
+  background-color: rgba(0, 0, 0, 0.3);
+  padding: 10px 15px;
+  border-radius: 4px;
+  font-weight: bold;
+}
+
+#bpm-display {
+  color: var(--accent-color);
+}
+
+#key-display {
+  color: #a78bfa;
+}
+
+/* Button groups */
+.button-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 15px 0;
+}
+
+.button-group button {
+  background-color: var(--medium-gray);
+  color: var(--light-text);
+  padding: 6px 12px;
+  font-size: 0.9em;
+}
+
+.button-group button:hover {
+  background-color: #555;
+}
+
+.button-group button.active {
+  background-color: var(--accent-color);
+  color: var(--dark-bg);
+}
+
+/* Control panel */
+.control-panel {
+  background-color: #2a2a2a;
+  border-radius: 6px;
+  padding: 15px;
+}
+
+/* Loading indicator */
+.loading {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 3px solid rgba(255, 255, 255, 0.3);
+  border-radius: 50%;
+  border-top-color: var(--accent-color);
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 10px;
+  vertical-align: middle;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Responsive adjustments */
+@media (max-width: 768px) {
+  .control-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  
+  #time-display {
+    margin-left: 0;
+    margin-top: 10px;
+  }
+}

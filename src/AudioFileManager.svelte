@@ -1,274 +1,189 @@
 <script>
   import { createEventDispatcher } from 'svelte';
   
-  // Props
-  export let maxFiles = 5;
-  
-  // Local state
-  let audioFiles = [];
-  let selectedFile = null;
   const dispatch = createEventDispatcher();
   
-  // Methods
-  function handleFileUpload(event) {
-    const files = Array.from(event.target.files);
+  let dragActive = false;
+  let fileInput;
+  let errorMessage = '';
+  
+  // Handle file selection
+  function handleFileChange(event) {
+    const files = event.target.files;
+    if (files.length > 0) {
+      processFile(files[0]);
+    }
+  }
+  
+  // Handle drag events
+  function handleDragEnter(event) {
+    event.preventDefault();
+    dragActive = true;
+  }
+  
+  function handleDragOver(event) {
+    event.preventDefault();
+    dragActive = true;
+  }
+  
+  function handleDragLeave() {
+    dragActive = false;
+  }
+  
+  function handleDrop(event) {
+    event.preventDefault();
+    dragActive = false;
     
-    if (files.length === 0) return;
+    const files = event.dataTransfer.files;
+    if (files.length > 0) {
+      processFile(files[0]);
+    }
+  }
+  
+  // Process the selected file
+  function processFile(file) {
+    // Check if file is an audio file
+    if (!file.type.startsWith('audio/')) {
+      errorMessage = 'Please select an audio file.';
+      return;
+    }
     
-    // Create URL objects for each file
-    const newFiles = files.map(file => ({
-      id: `file-${Math.random().toString(36).substring(2, 9)}`,
+    errorMessage = '';
+    
+    // Create object URL for the file
+    const url = URL.createObjectURL(file);
+    
+    // Dispatch event with file info
+    dispatch('fileSelected', {
+      file,
+      url,
       name: file.name,
       type: file.type,
-      size: file.size,
-      url: URL.createObjectURL(file),
-      file
-    }));
-    
-    // Add new files to the list (up to maxFiles)
-    audioFiles = [...audioFiles, ...newFiles].slice(0, maxFiles);
-    
-    // Select the first new file
-    if (!selectedFile && audioFiles.length > 0) {
-      selectFile(audioFiles[0]);
-    }
-    
-    // Reset the input
-    event.target.value = '';
+      size: file.size
+    });
   }
   
-  function selectFile(file) {
-    selectedFile = file;
-    dispatch('select', file);
-  }
-  
-  function removeFile(id) {
-    // Revoke object URL to prevent memory leaks
-    const fileToRemove = audioFiles.find(file => file.id === id);
-    if (fileToRemove) {
-      URL.revokeObjectURL(fileToRemove.url);
-    }
-    
-    // Remove file from list
-    audioFiles = audioFiles.filter(file => file.id !== id);
-    
-    // If the selected file was removed, select another one if available
-    if (selectedFile && selectedFile.id === id) {
-      selectedFile = audioFiles.length > 0 ? audioFiles[0] : null;
-      dispatch('select', selectedFile);
-    }
-  }
-  
-  function formatFileSize(bytes) {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
-    return `${(bytes / 1048576).toFixed(1)} MB`;
+  // Trigger file input click
+  function openFileDialog() {
+    fileInput.click();
   }
 </script>
 
 <style>
-  .audio-file-manager {
-    background-color: #121212;
-    border-radius: 4px;
-    padding: 12px;
-    margin-bottom: 15px;
-    border: 1px solid #333;
-  }
-  
-  h3 {
-    margin-top: 0;
-    margin-bottom: 12px;
-    color: #00b8a9;
-    font-size: 16px;
-    font-weight: 500;
-    letter-spacing: 0.5px;
-  }
-  
-  .file-list {
-    max-height: 200px;
-    overflow-y: auto;
-    margin-top: 15px;
-    border: 1px solid #333;
-    border-radius: 4px;
-    background-color: #121212;
-  }
-  
-  .file-item {
-    background-color: transparent;
-    padding: 8px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    position: relative;
-    border-radius: 4px;
-    margin-bottom: 4px;
-    display: flex;
-    align-items: center;
-  }
-  
-  .file-item:hover {
-    background-color: rgba(0, 184, 169, 0.1);
-  }
-  
-  .file-item.selected {
-    background-color: rgba(0, 184, 169, 0.1);
-    border-left: 2px solid #00b8a9;
-  }
-  
-  .bullet {
-    color: #00b8a9;
-    margin-right: 8px;
-    font-size: 12px;
-    line-height: 1;
-  }
-  
-  .file-info {
-    flex: 1;
-  }
-  
-  .file-name {
-    font-size: 14px;
-    margin-bottom: 2px;
-    color: #e6e6e6;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-  }
-  
-  .file-meta {
-    font-size: 11px;
-    color: #888;
-  }
-  
-  .remove-button {
-    background-color: transparent;
-    color: #666;
-    border: none;
-    width: 20px;
-    height: 20px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    cursor: pointer;
-    opacity: 0;
-    transition: opacity 0.2s ease;
-    font-size: 16px;
-  }
-  
-  .file-item:hover .remove-button {
-    opacity: 1;
-  }
-  
-  .remove-button:hover {
-    color: #e03c31;
-  }
-  
-  .empty-message {
-    padding: 12px;
+  .file-manager {
+    background-color: #1e1e1e;
+    border-radius: 8px;
+    padding: 30px;
     text-align: center;
-    color: #666;
-    font-style: italic;
-    font-size: 13px;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  }
+  
+  .drop-zone {
+    border: 2px dashed #444;
+    border-radius: 8px;
+    padding: 40px 20px;
+    margin-bottom: 20px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+  }
+  
+  .drop-zone.active {
+    border-color: #00b8a9;
+    background-color: rgba(0, 184, 169, 0.1);
+  }
+  
+  .drop-zone:hover {
+    border-color: #00b8a9;
+  }
+  
+  h2 {
+    color: #00b8a9;
+    margin-top: 0;
+    margin-bottom: 20px;
+  }
+  
+  p {
+    color: #ccc;
+    margin-bottom: 20px;
+  }
+  
+  .icon {
+    font-size: 48px;
+    color: #444;
+    margin-bottom: 20px;
+  }
+  
+  .drop-zone.active .icon {
+    color: #00b8a9;
   }
   
   .file-input {
     display: none;
   }
   
-  .file-label {
-    background-color: #121212;
-    color: #e6e6e6;
-    border: 1px solid #333;
-    border-radius: 3px;
-    padding: 4px 8px;
-    font-size: 11px;
-    font-weight: 500;
+  .browse-button {
+    background-color: #00b8a9;
+    color: #1e1e1e;
+    border: none;
+    border-radius: 4px;
+    padding: 10px 20px;
+    font-weight: bold;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    letter-spacing: 0.5px;
-    font-family: 'Inter', sans-serif;
-    text-transform: uppercase;
-    min-width: 70px;
+    transition: background-color 0.2s;
   }
   
-  .file-label:hover {
-    background-color: #1a1a1a;
-    transform: translateY(-1px);
-    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.5);
-    border-color: #00b8a9;
+  .browse-button:hover {
+    background-color: #00a598;
   }
-
-  .empty-state {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    padding: 20px;
-    text-align: center;
-    border: 1px dashed #333;
-    border-radius: 4px;
-    margin-top: 15px;
+  
+  .error-message {
+    color: #ff5252;
+    margin-top: 20px;
+    font-weight: bold;
   }
-
-  .empty-icon {
-    font-size: 24px;
-    margin-bottom: 10px;
-  }
-
-  .empty-hint {
-    font-size: 12px;
+  
+  .supported-formats {
     color: #888;
-    margin-top: 5px;
+    font-size: 14px;
+    margin-top: 20px;
   }
 </style>
 
-<div class="audio-file-manager">
-  <h3>Audio Files</h3>
+<div class="file-manager">
+  <h2>Upload Audio File</h2>
+  
+  <div
+    class="drop-zone"
+    class:active={dragActive}
+    role="button"
+    tabindex="0"
+    aria-label="Upload audio file"
+    on:click={openFileDialog}
+    on:keydown={(e) => e.key === 'Enter' && openFileDialog()}
+    on:dragenter={handleDragEnter}
+    on:dragover={handleDragOver}
+    on:dragleave={handleDragLeave}
+    on:drop={handleDrop}
+  >
+    <div class="icon">🎵</div>
+    <p>Drag and drop your audio file here</p>
+    <p>or</p>
+    <button class="browse-button">Browse Files</button>
+  </div>
+  
   <input
     type="file"
-    id="audio-upload"
     class="file-input"
     accept="audio/*"
-    multiple
-    on:change={handleFileUpload}
+    bind:this={fileInput}
+    on:change={handleFileChange}
   />
-  <label for="audio-upload" class="file-label">
-    Open Audio File
-  </label>
   
-  {#if audioFiles.length > 0}
-    <div class="file-list">
-      {#each audioFiles as file}
-        <div
-          class="file-item {selectedFile && selectedFile.id === file.id ? 'selected' : ''}"
-          on:click={() => selectFile(file)}
-          on:keydown={(e) => e.key === 'Enter' && selectFile(file)}
-          tabindex="0"
-          role="option"
-          aria-selected={selectedFile && selectedFile.id === file.id}
-        >
-          <span class="bullet">•</span>
-          <div class="file-info">
-            <div class="file-name">{file.name}</div>
-            <div class="file-meta">{formatFileSize(file.size)}</div>
-          </div>
-          <button
-            class="remove-button"
-            on:click|stopPropagation={() => removeFile(file)}
-            aria-label="Remove file"
-          >
-            ×
-          </button>
-        </div>
-      {/each}
-    </div>
-  {:else}
-    <div class="empty-state">
-      <div class="empty-icon">🎵</div>
-      <div class="empty-message">No audio files uploaded yet</div>
-      <div class="empty-hint">Click "Open Audio File" to get started</div>
-    </div>
+  {#if errorMessage}
+    <div class="error-message">{errorMessage}</div>
   {/if}
+  
+  <div class="supported-formats">
+    Supported formats: MP3, WAV, OGG, FLAC, AAC
+  </div>
 </div>

@@ -1,131 +1,171 @@
 <script>
-import { onMount } from 'svelte';
-import AudioTimeline from './AudioTimeline.svelte';
-import AudioFileManager from './AudioFileManager.svelte';
-
-let selectedAudioUrl = null;
-let projectName = 'Untitled Project';
-
-function handleFileSelect(event) {
-  selectedAudioUrl = event.detail.url;
-}
-
-onMount(() => {
-  // Initialize any needed functionality here
-});
-</script>
-
-<style>
-  :global(body) {
-    margin: 0;
-    padding: 0;
-    background-color: #121212; /* pure dark background */
-    color: #e6e6e6; /* light text */
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    line-height: 1.5;
-    overflow-x: hidden; /* Prevent horizontal scrolling */
-    box-sizing: border-box;
+  import { onMount } from 'svelte';
+  import AudioTimeline from './AudioTimeline.svelte';
+  import AudioFileManager from './AudioFileManager.svelte';
+  import LibraryDocs from './LibraryDocs.svelte';
+  
+  // Use a sample audio file from the local public directory
+  let audioUrl = '/sample.mp3';
+  let showFileManager = false;
+  let activeTab = 'editor'; // 'editor' or 'docs'
+  
+  function handleFileSelected(event) {
+    audioUrl = event.detail.url;
+    showFileManager = false;
   }
   
-  :global(*) {
-    box-sizing: border-box;
+  function setTab(tab) {
+    activeTab = tab;
   }
+</script>
 
-  :global(button) {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  }
+<main>
+  <header>
+    <h1>Audio Peaks</h1>
+    <p>High-Performance Audio Analysis & Manipulation</p>
+  </header>
+  
+  <nav class="tabs">
+    <button
+      class="tab-button"
+      class:active={activeTab === 'editor'}
+      on:click={() => setTab('editor')}
+    >
+      Audio Editor
+    </button>
+    <button
+      class="tab-button"
+      class:active={activeTab === 'docs'}
+      on:click={() => setTab('docs')}
+    >
+      Documentation
+    </button>
+  </nav>
+  
+  {#if activeTab === 'editor'}
+    {#if showFileManager}
+      <AudioFileManager on:fileSelected={handleFileSelected} />
+    {:else}
+      <AudioTimeline {audioUrl} />
+      
+      <div class="button-row">
+        <button on:click={() => showFileManager = true}>
+          Load Different Audio
+        </button>
+      </div>
+    {/if}
+  {:else if activeTab === 'docs'}
+    <LibraryDocs />
+  {/if}
+</main>
 
-  .container {
-    width: 100%;
+<style>
+  main {
     max-width: 1200px;
     margin: 0 auto;
     padding: 20px;
-    overflow-x: hidden;
   }
   
-  .app-header {
+  header {
+    text-align: center;
+    margin-bottom: 30px;
+  }
+  
+  h1 {
+    color: var(--primary-color);
+    margin-bottom: 5px;
+  }
+  
+  p {
+    color: var(--light-gray);
+    margin-top: 0;
+  }
+  
+  .button-row {
+    margin-top: 20px;
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-    padding-bottom: 10px;
-    border-bottom: 1px solid #333;
+    justify-content: center;
   }
   
-  .app-title {
-    color: #00b8a9;
-    font-size: 24px;
-    font-weight: 600;
-    margin: 0;
-  }
-  
-  .project-title {
-    font-size: 18px;
-    color: #e6e6e6;
-    padding: 5px 10px;
+  button {
+    background-color: var(--primary-color);
+    color: var(--dark-bg);
+    border: none;
     border-radius: 4px;
+    padding: 10px 20px;
+    font-weight: bold;
     cursor: pointer;
-    transition: background-color 0.2s;
+    transition: background-color 0.2s, transform 0.1s;
   }
   
-  .project-title:hover {
-    background-color: rgba(255, 255, 255, 0.1);
+  button:hover {
+    background-color: rgba(0, 184, 169, 0.8);
   }
   
-  .title-input {
-    background-color: #27272a;
-    border: 1px solid #3f3f46;
-    color: #e6e6e6;
-    font-size: 18px;
-    padding: 5px 10px;
-    border-radius: 4px;
-    width: 300px;
+  button:active {
+    transform: scale(0.98);
   }
   
-  .title-input:focus {
-    outline: none;
-    border-color: #00b8a9;
+  .tabs {
+    display: flex;
+    justify-content: center;
+    margin-bottom: 30px;
+    border-bottom: 1px solid var(--medium-gray);
+    padding-bottom: 10px;
   }
   
-  .two-column {
-    display: grid;
-    grid-template-columns: 300px 1fr;
-    gap: 20px;
+  .tab-button {
+    background-color: transparent;
+    color: var(--light-gray);
+    border: none;
+    padding: 10px 20px;
+    margin: 0 10px;
+    font-size: 16px;
+    font-weight: bold;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+  }
+  
+  .tab-button:hover {
+    color: var(--light-text);
+    background-color: transparent;
+  }
+  
+  .tab-button.active {
+    color: var(--primary-color);
+  }
+  
+  .tab-button.active::after {
+    content: '';
+    position: absolute;
+    bottom: -11px;
+    left: 0;
     width: 100%;
-    max-width: 100%;
+    height: 3px;
+    background-color: var(--primary-color);
+    border-radius: 3px 3px 0 0;
   }
   
-  .main-content {
-    width: 100%;
-    max-width: 100%;
-    overflow-x: hidden;
+  :global(:root) {
+    /* Color palette */
+    --primary-color: #00b8a9;
+    --secondary-color: #4b5eab;
+    --accent-color: #ccff00;
+    --dark-bg: #1e1e1e;
+    --darker-bg: #121212;
+    --light-text: #ffffff;
+    --medium-gray: #444444;
+    --light-gray: #888888;
+    --error-color: #ff5252;
   }
   
-  @media (max-width: 768px) {
-    .two-column {
-      grid-template-columns: 1fr;
-    }
+  :global(body) {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: var(--darker-bg);
+    color: var(--light-text);
+    margin: 0;
+    padding: 0;
+    line-height: 1.6;
   }
 </style>
-
-<div class="container">
-  <div class="app-header">
-    <h1 class="app-title">Audio Editor</h1>
-    <div class="project-info">
-      <span class="project-title">{projectName}</span>
-    </div>
-  </div>
-  
-  <div class="two-column">
-    <div class="sidebar">
-      <AudioFileManager on:select={handleFileSelect} />
-    </div>
-    
-    <div class="main-content">
-      <AudioTimeline 
-        audioUrl={selectedAudioUrl} 
-        bind:projectName={projectName}
-      />
-    </div>
-  </div>
-</div>
