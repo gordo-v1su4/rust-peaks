@@ -4,6 +4,8 @@
   import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js';
   import { TransientDetector } from './lib/audio-analysis/transient-detector.js';
   import { SongStructureAnalyzer } from './lib/audio-analysis/song-structure-analyzer.js';
+  import { BPMDetector } from './lib/audio-analysis/bpm-detector.js';
+  import { KeyDetector } from './lib/audio-analysis/key-detector.js';
   import ExportDialog from './ExportDialog.svelte';
   import AudioVisualizer from './AudioVisualizer.svelte';
 
@@ -16,6 +18,7 @@
   let currentTime = 0;
   let duration = 0;
   let zoom = 50;
+  let volume = 75;
   let transients = [];
   let sections = [];
   let customRegions = [];
@@ -24,17 +27,30 @@
   let isLooping = false;
   let inPoint = null;
   let outPoint = null;
+  let bpm = null;
+  let key = null;
 
-  // Create transient detector
+  // Analysis settings
+  let density = 91;
+  let randomness = 41;
+  let sensitivity = 70;
+  let minSpacing = 0.05;
+  let snapThreshold = 0.55;
+  let enableSnapping = true;
+  let snapToTransients = true;
+  let snapToBeats = false;
+
+  // Create analyzers
   const transientDetector = new TransientDetector({
-    density: 50,
-    randomness: 30,
-    sensitivity: 70,
-    minSpacing: 0.1
+    density,
+    randomness,
+    sensitivity,
+    minSpacing
   });
 
-  // Create song structure analyzer
   const structureAnalyzer = new SongStructureAnalyzer();
+  const bpmDetector = new BPMDetector();
+  const keyDetector = new KeyDetector();
 
   onMount(() => {
     // Initialize WaveSurfer
@@ -53,7 +69,8 @@
     // Event listeners
     wavesurfer.on('ready', () => {
       duration = wavesurfer.getDuration();
-      detectTransients();
+      wavesurfer.setVolume(volume / 100);
+      wavesurfer.zoom(zoom);
     });
 
     wavesurfer.on('play', () => isPlaying = true);
@@ -87,26 +104,48 @@
     customRegions = [];
     inPoint = null;
     outPoint = null;
+    bpm = null;
+    key = null;
   }
 
   async function detectTransients() {
     const audioBuffer = wavesurfer.backend.buffer;
     if (!audioBuffer) return;
 
-    // Detect transients
     transients = transientDetector.detectTransients(audioBuffer);
+  }
 
-    // Analyze song structure
+  async function analyzeAudio() {
+    const audioBuffer = wavesurfer.backend.buffer;
+    if (!audioBuffer) return;
+
+    // Detect BPM
+    const bpmResult = bpmDetector.detectBPM(audioBuffer);
+    bpm = Math.round(bpmResult.bpm);
+
+    // Detect key
+    const keyResult = keyDetector.detectKey(audioBuffer);
+    key = `${keyResult.key} ${keyResult.mode}`;
+
+    // Analyze structure
     const analysis = await structureAnalyzer.analyzeStructure(audioBuffer);
     sections = analysis.sections;
   }
 
   function findNearestTransient(time) {
-    if (!transients.length) return time;
+    if (!enableSnapping) return time;
     
-    return transients.reduce((prev, curr) => {
-      return Math.abs(curr - time) < Math.abs(prev - time) ? curr : prev;
-    });
+    if (snapToTransients && transients.length) {
+      const nearest = transients.reduce((prev, curr) => {
+        return Math.abs(curr - time) < Math.abs(prev - time) ? curr : prev;
+      });
+      
+      if (Math.abs(nearest - time) <= snapThreshold) {
+        return nearest;
+      }
+    }
+    
+    return time;
   }
 
   function addTimestamp() {
@@ -164,13 +203,28 @@
     isLooping = !isLooping;
   }
 
+  function updateVolume(event) {
+    const newVolume = event.target.value;
+    if (wavesurfer) {
+      wavesurfer.setVolume(newVolume / 100);
+    }
+    volume = newVolume;
+  }
+
+  function updateZoom(event) {
+    const newZoom = event.target.value;
+    if (wavesurfer) {
+      wavesurfer.zoom(newZoom);
+    }
+    zoom = newZoom;
+  }
+
   function exportRegion(region) {
     selectedRegion = region;
     showExportDialog = true;
   }
 
   function handleExport(event) {
-    // Handle export logic here
     showExportDialog = false;
   }
 
@@ -204,6 +258,16 @@
     display: flex;
     gap: 10px;
     margin-bottom: 15px;
+    align-items: center;
+  }
+
+  .control-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 10px;
+    background-color: #121212;
+    border-radius: 4px;
   }
 
   .button {
@@ -240,6 +304,68 @@
     border-radius: 4px;
     padding: 10px;
     margin-bottom: 15px;
+  }
+
+  .analysis-panel {
+    background-color: #121212;
+    border-radius: 4px;
+    padding: 15px;
+    margin-bottom: 15px;
+  }
+
+  .analysis-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+  }
+
+  .analysis-title {
+    color: #e6e6e6;
+    font-size: 14px;
+    font-weight: 500;
+  }
+
+  .analysis-controls {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 15px;
+    margin-bottom: 15px;
+  }
+
+  .control-item {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+  }
+
+  .control-label {
+    color: #888;
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  .control-value {
+    color: #00b8a9;
+    font-size: 12px;
+  }
+
+  input[type="range"] {
+    width: 100%;
+    height: 4px;
+    background: #2a2a2a;
+    border-radius: 2px;
+    -webkit-appearance: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    background: #00b8a9;
+    border-radius: 50%;
+    cursor: pointer;
   }
 
   .sections {
@@ -305,6 +431,28 @@
     color: #00b8a9;
   }
 
+  .snapping-controls {
+    display: flex;
+    gap: 15px;
+    align-items: center;
+    margin-top: 10px;
+  }
+
+  .radio-group {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .radio-label {
+    color: #888;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+  }
+
   .button-group {
     display: flex;
     gap: 5px;
@@ -314,13 +462,185 @@
     padding: 4px 8px;
     font-size: 12px;
   }
+
+  .analysis-results {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+  }
+
+  .result-badge {
+    background-color: #2a2a2a;
+    color: #e6e6e6;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+  }
+
+  .result-badge.bpm {
+    background-color: #4a5eff;
+  }
+
+  .result-badge.key {
+    background-color: #00b8a9;
+  }
 </style>
 
 <div class="timeline-container">
   <div class="controls">
-    <button class="button" on:click={togglePlayPause}>
-      {isPlaying ? 'Pause' : 'Play'}
-    </button>
+    <div class="control-group">
+      <button class="button" on:click={togglePlayPause}>
+        {isPlaying ? 'Pause' : 'Play'}
+      </button>
+      <span class="time-display">
+        {formatTime(currentTime)} / {formatTime(duration)}
+      </span>
+    </div>
+
+    <div class="control-group">
+      <label>Volume</label>
+      <input 
+        type="range" 
+        min="0" 
+        max="100" 
+        bind:value={volume} 
+        on:input={updateVolume}
+      />
+    </div>
+
+    <div class="control-group">
+      <label>Zoom</label>
+      <input 
+        type="range" 
+        min="1" 
+        max="100" 
+        bind:value={zoom} 
+        on:input={updateZoom}
+      />
+    </div>
+  </div>
+
+  <div class="waveform" bind:this={container}></div>
+
+  <div class="analysis-panel">
+    <div class="analysis-header">
+      <h3 class="analysis-title">Transient Detection</h3>
+      <button class="button" on:click={detectTransients}>
+        DETECT TRANSIENTS
+      </button>
+    </div>
+
+    <div class="analysis-controls">
+      <div class="control-item">
+        <div class="control-label">
+          <span>Density</span>
+          <span class="control-value">{density}%</span>
+        </div>
+        <input type="range" min="1" max="100" bind:value={density} />
+      </div>
+
+      <div class="control-item">
+        <div class="control-label">
+          <span>Randomness</span>
+          <span class="control-value">{randomness}%</span>
+        </div>
+        <input type="range" min="0" max="100" bind:value={randomness} />
+      </div>
+
+      <div class="control-item">
+        <div class="control-label">
+          <span>Sensitivity</span>
+          <span class="control-value">{sensitivity}%</span>
+        </div>
+        <input type="range" min="1" max="100" bind:value={sensitivity} />
+      </div>
+
+      <div class="control-item">
+        <div class="control-label">
+          <span>Min Spacing</span>
+          <span class="control-value">{minSpacing.toFixed(2)}s</span>
+        </div>
+        <input type="range" min="0.01" max="1" step="0.01" bind:value={minSpacing} />
+      </div>
+    </div>
+  </div>
+
+  <div class="analysis-panel">
+    <div class="analysis-header">
+      <h3 class="analysis-title">Audio Analysis</h3>
+      <button class="button" on:click={analyzeAudio}>
+        DETECT BPM & KEY
+      </button>
+    </div>
+
+    {#if bpm || key}
+      <div class="analysis-results">
+        {#if bpm}
+          <div class="result-badge bpm">{bpm} BPM</div>
+        {/if}
+        {#if key}
+          <div class="result-badge key">{key}</div>
+        {/if}
+      </div>
+    {/if}
+  </div>
+
+  <div class="analysis-panel">
+    <div class="analysis-header">
+      <h3 class="analysis-title">Marker Snapping</h3>
+    </div>
+
+    <div class="snapping-controls">
+      <label class="radio-label">
+        <input 
+          type="checkbox" 
+          bind:checked={enableSnapping}
+        />
+        Enable Snapping
+      </label>
+
+      {#if enableSnapping}
+        <div class="radio-group">
+          <label class="radio-label">
+            <input 
+              type="radio" 
+              bind:group={snapToTransients} 
+              value={true}
+              disabled={!enableSnapping}
+            />
+            Snap to Transients
+          </label>
+
+          <label class="radio-label">
+            <input 
+              type="radio" 
+              bind:group={snapToTransients} 
+              value={false}
+              disabled={!enableSnapping}
+            />
+            Snap to Beats
+          </label>
+        </div>
+
+        <div class="control-item" style="width: 200px;">
+          <div class="control-label">
+            <span>Snap Threshold</span>
+            <span class="control-value">{snapThreshold.toFixed(2)}s</span>
+          </div>
+          <input 
+            type="range" 
+            min="0.01" 
+            max="1" 
+            step="0.01" 
+            bind:value={snapThreshold}
+            disabled={!enableSnapping}
+          />
+        </div>
+      {/if}
+    </div>
+  </div>
+
+  <div class="controls">
     <button class="button" on:click={addTimestamp}>
       Add Timestamp
     </button>
@@ -330,9 +650,6 @@
     >
       Loop Region
     </button>
-    <span class="time-display">
-      {formatTime(currentTime)} / {formatTime(duration)}
-    </span>
   </div>
 
   <div class="marker-points">
@@ -343,8 +660,6 @@
       Out: {outPoint !== null ? formatTime(outPoint) : '--:--'}
     </div>
   </div>
-
-  <div class="waveform" bind:this={container}></div>
 
   <div class="sections">
     {#if customRegions.length > 0}
