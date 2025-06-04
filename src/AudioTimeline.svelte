@@ -1,1927 +1,394 @@
 <script>
-  import { onMount, onDestroy, createEventDispatcher } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import WaveSurfer from 'wavesurfer.js';
-  import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.esm.js';
-  import TimelinePlugin from 'wavesurfer.js/dist/plugins/timeline.esm.js';
+  import RegionsPlugin from 'wavesurfer.js/dist/plugins/regions.js';
+  import { TransientDetector } from './lib/audio-analysis/transient-detector.js';
+  import { SongStructureAnalyzer } from './lib/audio-analysis/song-structure-analyzer.js';
   import ExportDialog from './ExportDialog.svelte';
   import AudioVisualizer from './AudioVisualizer.svelte';
-  import { SongStructureAnalyzer, TransientDetector, BPMDetector, KeyDetector } from './lib/audio-analysis/index.js';
-  
-  // Props
+
   export let audioUrl = null;
-  export let height = 128;
-  export let waveColor = 'rgba(0, 184, 169, 0.3)';
-  export let progressColor = 'rgba(0, 184, 169, 0.7)';
-  export let cursorColor = '#ccff00';
-  export let cursorWidth = 2;
-  
-  // Local state
+  export let projectName = 'Untitled Project';
+
   let wavesurfer;
-  let regionsPlugin;
   let container;
-  let timelineContainer;
   let isPlaying = false;
-  let duration = 0;
   let currentTime = 0;
-  let volume = 1;
-  let zoom = 1; // Start with minimum zoom to ensure entire track fits
-  // Properties for regions and markers
-  let regions = [];
-  let markers = [];
-  let activeRegion = null;
-  let isLoaded = false;
-  let isAnalyzing = false;
-  let songStructure = [];
-  let showStructureOverlay = false;
-  let markerName = '';
+  let duration = 0;
+  let zoom = 50;
+  let transients = [];
+  let sections = [];
+  let customRegions = [];
   let showExportDialog = false;
-  
-  // Transient detection variables
-  let isDetectingTransients = false;
-  let transientDensity = 50; // Default value, range 0-100
-  let transientRandomness = 30; // Default value, range 0-100
-  let transientSensitivity = 70; // How sensitive detection is, range 0-100
-  let transientMinSpacing = 0.5; // Minimum time (in seconds) between transients
-  let transientMarkers = []; // Store transient markers separately
-  let isTransientHit = false; // Indicator for transient detection light
-  let transientHitTimeout = null; // Timeout for turning off the hit indicator
-  let detectedTransients = []; // Store actual transient times
-  
-  // BPM detection variables
-  let isDetectingBPM = false;
-  let detectedBPM = 0;
-  let bpmConfidence = 0;
-  let beatMarkers = []; // Store beat markers separately
-  
-  // Key detection variables
-  let isDetectingKey = false;
-  let detectedKey = '';
-  let detectedMode = '';
-  let keyConfidence = 0;
-  
-  // Snapping options
-  let snapEnabled = true;
-  let snapTo = 'transients'; // 'transients', 'beats', or 'none'
-  let snapThreshold = 0.5; // Seconds
-  
-  // Generate unique shades of blue and purple for markers
-  function generateMarkerColor(index) {
-    // Create different shades of blue and purple
-    const hue = 230 + (index * 15) % 60; // Range from 230 (blue) to 290 (purple)
-    const saturation = 60 + (index * 5) % 20; // Range from 60% to 80%
-    const lightness = 40 + (index * 3) % 20; // Range from 40% to 60%
-    return `hsla(${hue}, ${saturation}%, ${lightness}%, 0.6)`;
-  }
-  
-  // Generate colors for transient markers from yellow to red
-  function generateTransientColor(position) {
-    // Use position (0-1) to interpolate between yellow and red
-    const hue = 60 - (position * 60); // 60 is yellow, 0 is red
-    const saturation = 80 + (position * 10); // 80-90%
-    const lightness = 50 - (position * 15); // 50-35%
-    return `hsla(${hue}, ${saturation}%, ${lightness}%, 0.7)`;
-  }
-  
-  // Create a unique ID for this instance
-  const id = `waveform-${Math.random().toString(36).substring(2, 9)}`;
-  const timelineId = `timeline-${Math.random().toString(36).substring(2, 9)}`;
-  
-  // Project title functionality from AudioEditor
-  let projectName = 'Untitled Project';
-  let isEditingTitle = false;
-  
-  // Toggle project title editing
-  function toggleTitleEdit() {
-    isEditingTitle = !isEditingTitle;
-  }
-  
-  // Handle title input blur
-  function handleTitleBlur() {
-    isEditingTitle = false;
-    // Trim and set default if empty
-    projectName = projectName.trim() || 'Untitled Project';
-  }
-  
-  // Handle title input keydown
-  function handleTitleKeydown(event) {
-    if (event.key === 'Enter') {
-      handleTitleBlur();
-    }
-  }
-  
+  let selectedRegion = null;
+  let isLooping = false;
+  let inPoint = null;
+  let outPoint = null;
+
+  // Create transient detector
+  const transientDetector = new TransientDetector({
+    density: 50,
+    randomness: 30,
+    sensitivity: 70,
+    minSpacing: 0.1
+  });
+
+  // Create song structure analyzer
+  const structureAnalyzer = new SongStructureAnalyzer();
+
   onMount(() => {
-    if (!container) return;
-    
-    // Create WaveSurfer instance
+    // Initialize WaveSurfer
     wavesurfer = WaveSurfer.create({
-      container,
-      height,
-      waveColor,
-      progressColor,
-      cursorColor,
-      cursorWidth,
+      container: container,
+      waveColor: '#4a9eff',
+      progressColor: '#1453e3',
+      cursorColor: '#fff',
+      height: 128,
       normalize: true,
-      minimap: true,
-      backend: 'WebAudio',
-      // Ensure we're zoomed out to see the entire track initially
-      fillParent: true,
-      responsive: true,
-      // Add this to prevent horizontal overflow
-      scrollParent: false,
-      // Make sure waveform fits within container
-      autoCenter: true,
       plugins: [
-        // Store the regions plugin reference for later use
-        regionsPlugin = RegionsPlugin.create({
-          dragSelection: true,
-          slop: 5, // Additional pixels for regions to extend beyond their boundaries for easier selection
-          opacity: 0.3
-        }),
-        TimelinePlugin.create({
-          container: timelineContainer,
-          primaryLabelInterval: 10,
-          secondaryLabelInterval: 5,
-          primaryColor: 'rgba(0, 0, 0, 1)',
-          secondaryColor: 'rgba(0, 0, 0, 0.5)',
-          primaryFontColor: '#000',
-          secondaryFontColor: '#000'
-        })
+        RegionsPlugin.create()
       ]
     });
-    
+
     // Event listeners
     wavesurfer.on('ready', () => {
       duration = wavesurfer.getDuration();
-      isLoaded = true;
-      
-      // Calculate the perfect zoom level to fit the entire track
-      const containerWidth = container.clientWidth;
-      if (containerWidth && duration) {
-        // Calculate pixels per second to fit perfectly
-        const minPxPerSec = containerWidth / duration;
-        wavesurfer.zoom(minPxPerSec);
-        zoom = 1; // Set UI zoom slider to minimum
-      } else {
-        // Fallback to minimum zoom
-        setZoom(1);
+      detectTransients();
+    });
+
+    wavesurfer.on('play', () => isPlaying = true);
+    wavesurfer.on('pause', () => isPlaying = false);
+    wavesurfer.on('timeupdate', (time) => {
+      currentTime = time;
+      if (isLooping && selectedRegion) {
+        if (currentTime >= selectedRegion.end) {
+          wavesurfer.setTime(selectedRegion.start);
+        }
       }
     });
-    
-    wavesurfer.on('audioprocess', () => {
-      currentTime = wavesurfer.getCurrentTime();
-      
-      // Check if we're hitting any transient markers
-      checkTransientHit(currentTime);
-    });
-    
-    wavesurfer.on('play', () => {
-      isPlaying = true;
-    });
-    
-    wavesurfer.on('pause', () => {
-      isPlaying = false;
-    });
-    
-    wavesurfer.on('region-created', region => {
-      regions = [...regions, region];
-      activeRegion = region;
-    });
-    
-    wavesurfer.on('region-updated', region => {
-      regions = regions.map(r => r.id === region.id ? region : r);
-    });
-    
-    wavesurfer.on('region-clicked', region => {
-      activeRegion = region;
-    });
-    
-    wavesurfer.on('region-removed', region => {
-      regions = regions.filter(r => r.id !== region.id);
-      if (activeRegion && activeRegion.id === region.id) {
-        activeRegion = null;
-      }
-    });
-    
+
     // Load audio if URL is provided
     if (audioUrl) {
-      loadAudio(audioUrl);
+      wavesurfer.load(audioUrl);
     }
   });
-  
+
   onDestroy(() => {
     if (wavesurfer) {
       wavesurfer.destroy();
     }
-    
-    // Clean up transient hit timeout
-    if (transientHitTimeout) {
-      clearTimeout(transientHitTimeout);
-    }
   });
-  
-  // Methods
-  function loadAudio(url) {
-    if (!wavesurfer) return;
-    isLoaded = false;
+
+  // Watch for audio URL changes
+  $: if (wavesurfer && audioUrl) {
+    wavesurfer.load(audioUrl);
+    transients = [];
+    sections = [];
+    customRegions = [];
+    inPoint = null;
+    outPoint = null;
+  }
+
+  async function detectTransients() {
+    const audioBuffer = wavesurfer.backend.buffer;
+    if (!audioBuffer) return;
+
+    // Detect transients
+    transients = transientDetector.detectTransients(audioBuffer);
+
+    // Analyze song structure
+    const analysis = await structureAnalyzer.analyzeStructure(audioBuffer);
+    sections = analysis.sections;
+  }
+
+  function findNearestTransient(time) {
+    if (!transients.length) return time;
     
-    // Clear any existing markers and regions when loading a new file
-    clearRegions();
-    markers = [];
-    clearTransientMarkers();
-    
-    wavesurfer.load(url);
-    
-    // Reset zoom when loading a new file
-    wavesurfer.once('ready', () => {
-      // Set a slight delay to ensure the waveform is fully loaded
-      setTimeout(() => {
-        // Calculate the perfect zoom level to fit the entire track
-        const containerWidth = container.clientWidth;
-        if (containerWidth && wavesurfer.getDuration()) {
-          // Calculate pixels per second to fit perfectly
-          const minPxPerSec = containerWidth / wavesurfer.getDuration();
-          wavesurfer.zoom(minPxPerSec);
-          zoom = 1; // Set UI zoom slider to minimum
-        } else {
-          // Fallback to minimum zoom
-          setZoom(1);
-        }
-      }, 100);
+    return transients.reduce((prev, curr) => {
+      return Math.abs(curr - time) < Math.abs(prev - time) ? curr : prev;
     });
   }
-  
-  function togglePlay() {
-    if (!wavesurfer) return;
-    wavesurfer.playPause();
-  }
-  
-  function stop() {
-    if (!wavesurfer) return;
-    wavesurfer.stop();
-    isPlaying = false;
-  }
-  
-  function setVolume(value) {
-    if (!wavesurfer) return;
-    volume = value;
-    wavesurfer.setVolume(volume);
-  }
-  
-  function setZoom(value) {
-    if (!wavesurfer) return;
-    zoom = value;
+
+  function addTimestamp() {
+    const time = findNearestTransient(currentTime);
     
-    // Calculate appropriate minPxPerSec based on current zoom level and container width
-    const containerWidth = container.clientWidth;
-    const trackDuration = wavesurfer.getDuration();
-    
-    if (trackDuration && containerWidth) {
-      // At minimum zoom (1), we want the entire track to fit exactly in the container
-      // At maximum zoom (100), we want much more detail
-      const minPxPerSec = zoom === 1 ? 
-        (containerWidth / trackDuration) : // Perfect fit at zoom level 1
-        (containerWidth / trackDuration) * (1 + (zoom * 0.3)); // Gradually increase detail
-        
-      // Apply zoom with the calculated pixels per second
-      wavesurfer.zoom(minPxPerSec);
-    } else {
-      // Fallback to simple zoom if we can't calculate optimal value
-      wavesurfer.zoom(value);
-    }
-    
-    // Ensure the waveform stays centered and contained
-    if (wavesurfer.drawer && wavesurfer.drawer.recenter) {
-      wavesurfer.drawer.recenter(wavesurfer.getCurrentTime() / wavesurfer.getDuration());
+    if (!inPoint) {
+      inPoint = time;
+    } else if (!outPoint) {
+      outPoint = time;
+      createCustomRegion();
     }
   }
-  
-  function seekTo(position) {
-    if (!wavesurfer) return;
-    wavesurfer.seekTo(position / duration);
+
+  function createCustomRegion() {
+    if (!inPoint || !outPoint) return;
+
+    const start = Math.min(inPoint, outPoint);
+    const end = Math.max(inPoint, outPoint);
+    
+    const region = {
+      id: `custom-${Date.now()}`,
+      start,
+      end,
+      color: 'rgba(100, 100, 255, 0.2)',
+      name: `Custom (${formatTime(start)} - ${formatTime(end)})`
+    };
+
+    customRegions = [...customRegions, region];
+    
+    // Create WaveSurfer region
+    wavesurfer.addRegion({
+      ...region,
+      drag: false,
+      resize: false
+    });
+
+    // Reset points
+    inPoint = null;
+    outPoint = null;
   }
-  
+
   function formatTime(seconds) {
-    if (isNaN(seconds)) return '00:00';
     const mins = Math.floor(seconds / 60);
     const secs = Math.floor(seconds % 60);
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   }
-  
-  function createRegion() {
-    if (!wavesurfer) return;
-    
-    // Find start position - snap to nearest transient if enabled
-    let startPosition = currentTime;
-    let endPosition = Math.min(currentTime + 5, duration);
-    
-    if (snapEnabled && snapTo === 'transients' && detectedTransients.length > 0) {
-      startPosition = findNearestSnapPoint(currentTime);
-      
-      // Find the next transient for the end position
-      const nextTransients = detectedTransients.filter(t => t > startPosition);
-      if (nextTransients.length > 0) {
-        // Use the next transient as the end position, or if it's too close, use the one after
-        if (nextTransients.length > 1 && nextTransients[0] - startPosition < 1) {
-          endPosition = nextTransients[1];
-        } else {
-          endPosition = nextTransients[0];
-        }
-      }
+
+  function togglePlayPause() {
+    if (wavesurfer) {
+      wavesurfer.playPause();
     }
-    
-    // Use a blue color for the region
-    const blueColor = 'rgba(75, 94, 171, 0.3)'; // Blue color with transparency
-    
-    // Create the region
-    const region = wavesurfer.addRegion({
-      id: `region-${Math.random().toString(36).substring(2, 9)}`,
-      start: startPosition,
-      end: endPosition,
-      color: blueColor,
-      drag: true,
-      resize: true
-    });
-    
-    activeRegion = region;
-    
-    // Add to song structure
-    const regionName = `Region ${songStructure.length}`;
-    const newSection = {
-      id: region.id,
-      name: regionName,
-      start: startPosition,
-      end: endPosition,
-      color: blueColor,
-      startPercent: (startPosition / duration) * 100,
-      widthPercent: ((endPosition - startPosition) / duration) * 100
-    };
-    
-    // Initialize song structure if it doesn't exist
-    if (songStructure.length === 0) {
-      showStructureOverlay = true;
-    }
-    
-    // Add the new section to the song structure
-    songStructure = [...songStructure, newSection];
-    
-    // Add to regions array for tracking
-    regions = [...regions, region];
-    
-    console.log(`Created region: ${regionName} (${formatTime(startPosition)} - ${formatTime(endPosition)})`);
   }
-  
-  function deleteRegion() {
-    if (!activeRegion) return;
-    
-    // Remove from song structure
-    songStructure = songStructure.filter(section => section.id !== activeRegion.id);
-    
-    // Remove the region
-    activeRegion.remove();
-    
-    // Update regions array
-    regions = regions.filter(r => r.id !== activeRegion.id);
-    
-    // Clear active region
-    activeRegion = null;
+
+  function toggleLoop() {
+    isLooping = !isLooping;
   }
-  
-  function playRegion() {
-    if (!activeRegion || !wavesurfer) return;
-    
-    // Set playback position to region start
-    wavesurfer.setTime(activeRegion.start);
-    
-    // Start playback
-    wavesurfer.play();
-  }
-  
-  // This is intentionally removed to fix the duplicate function issue
-  
-  function handleExport(event) {
-    const { region, format, quality, name } = event.detail;
-    
-    // In a real app, you would use Web Audio API to extract and convert the audio
-    // For now, we'll just show an alert with the export details
-    alert(`Exporting region as ${format.toUpperCase()}:
-    Name: ${name}
-    Start: ${region.start.toFixed(2)}s
-    End: ${region.end.toFixed(2)}s
-    Quality: ${quality}
-    `);
-  }
-  
-  function exportRegion() {
-    if (!activeRegion || !wavesurfer) return;
+
+  function exportRegion(region) {
+    selectedRegion = region;
     showExportDialog = true;
   }
-  
-  // Marker functions
-  function createMarker() {
-    if (!wavesurfer || !isLoaded) return;
-    
-    let timePosition = wavesurfer.getCurrentTime();
-    
-    // Apply snapping if enabled
-    if (snapEnabled) {
-      timePosition = findNearestSnapPoint(timePosition);
-    }
-    
-    const markerId = `marker-${Math.random().toString(36).substring(2, 9)}`;
-    
-    // Create marker label based on timestamp
-    // Find nearest existing markers to determine number
-    let markerNumber;
-    
-    if (markers.length === 0) {
-      markerNumber = 1;
-    } else {
-      // Sort markers by time
-      const sortedMarkers = [...markers].sort((a, b) => a.start - b.start);
-      
-      // Find position in the sorted array
-      let insertIndex = sortedMarkers.findIndex(m => m.start > timePosition);
-      if (insertIndex === -1) {
-        // If it should be placed at the end
-        insertIndex = sortedMarkers.length;
-      }
-      
-      // Determine marker number
-      if (insertIndex === 0) {
-        // Before the first marker
-        markerNumber = sortedMarkers[0].data.number / 2;
-      } else if (insertIndex === sortedMarkers.length) {
-        // After the last marker
-        markerNumber = sortedMarkers[sortedMarkers.length - 1].data.number + 1;
-      } else {
-        // Between two markers
-        markerNumber = (sortedMarkers[insertIndex - 1].data.number + sortedMarkers[insertIndex].data.number) / 2;
-      }
-    }
-    
-    // Generate marker color based on its number
-    const markerColor = generateMarkerColor(Math.floor(markerNumber * 10));
-    
-    // Create a marker (using a region with small width)
-    const marker = regionsPlugin.addRegion({
-      id: markerId,
-      start: timePosition,
-      end: timePosition + 0.01, // Very small to act as a marker
-      color: markerColor,
-      drag: true, // Enable dragging
-      resize: false,
-      data: {
-        type: 'marker',
-        number: markerNumber,
-        timestamp: formatTime(timePosition)
-      }
-    });
-    
-    // Add visual indicator for the marker
-    marker.element.style.width = '2px';
-    marker.element.style.borderRadius = '0';
-    marker.element.style.cursor = 'pointer';
-    
-    // Add marker label
-    const label = document.createElement('div');
-    label.className = 'marker-label';
-    label.textContent = markerNumber.toFixed(1);
-    label.style.position = 'absolute';
-    label.style.top = '-20px';
-    label.style.left = '50%';
-    label.style.transform = 'translateX(-50%)';
-    label.style.fontSize = '10px';
-    label.style.color = '#fff';
-    label.style.backgroundColor = markerColor;
-    label.style.padding = '1px 3px';
-    label.style.borderRadius = '2px';
-    marker.element.appendChild(label);
-    
-    // Add drag event listener for snapping
-    marker.on('update-end', () => {
-      if (snapEnabled) {
-        const newPosition = findNearestSnapPoint(marker.start);
-        if (newPosition !== marker.start) {
-          marker.update({
-            start: newPosition,
-            end: newPosition + 0.01
-          });
-        }
-      }
-    });
-    
-    markers = [...markers, marker];
-    
-    // Initialize song structure overlay if not already shown
-    if (!showStructureOverlay && markers.length === 1) {
-      showStructureOverlay = true;
-      
-      // Create a basic structure if none exists
-      if (songStructure.length === 0) {
-        songStructure = [{
-          id: 'full-track',
-          name: 'Full Track',
-          start: 0,
-          end: duration,
-          color: 'rgba(0, 184, 169, 0.2)',
-          startPercent: 0,
-          widthPercent: 100
-        }];
+
+  function handleExport(event) {
+    // Handle export logic here
+    showExportDialog = false;
+  }
+
+  function seekToRegion(region) {
+    if (wavesurfer) {
+      wavesurfer.setTime(region.start);
+      if (!isPlaying) {
+        wavesurfer.play();
       }
     }
   }
-  
-  function deleteMarker(markerId) {
-    if (!wavesurfer) return;
-    
-    // Find and remove the marker from the regions plugin
-    const marker = regionsPlugin.getRegions().find(r => r.id === markerId);
-    if (marker) {
-      marker.remove();
-      markers = markers.filter(m => m.id !== markerId);
-    }
-  }
-  
-  // Simplified audio analysis that creates reliable regions
-  async function analyzeAudio() {
-    if (!wavesurfer || !isLoaded) return;
-    
-    isAnalyzing = true;
-    console.log('Starting audio analysis...');
-    
-    try {
-      // First destroy any existing regions completely
-      if (wavesurfer.getRegions) {
-        const existingRegions = wavesurfer.getRegions();
-        if (existingRegions && existingRegions.length > 0) {
-          existingRegions.forEach(region => {
-            try {
-              if (region && region.remove) {
-                region.remove();
-              }
-            } catch (e) {
-              console.log('Error cleaning up region:', e);
-            }
-          });
-        }
-      }
-      
-      // Reset our regions array
-      regions = [];
-      
-      // Wait for regions to be fully cleared
-      await new Promise(resolve => setTimeout(resolve, 200));
-      
-      // Get audio duration from wavesurfer
-      const duration = wavesurfer.getDuration();
-      if (!duration || duration <= 0) {
-        console.error('Invalid audio duration');
-        return;
-      }
-      
-      console.log('Audio duration:', duration);
-      
-      // Get the audio buffer from wavesurfer for analysis
-      const audioBuffer = wavesurfer.getDecodedData();
-      if (!audioBuffer) {
-        console.error('No audio data available for analysis');
-        return;
-      }
-      
-      // Create a song structure analyzer with our current transient settings
-      const analyzer = new SongStructureAnalyzer({
-        transient: {
-          density: transientDensity,
-          randomness: transientRandomness,
-          sensitivity: transientSensitivity,
-          minSpacing: transientMinSpacing
-        },
-        spectral: {
-          fftSize: 2048,
-          segmentSize: 0.5 // Smaller segments for more precise analysis
-        }
-      });
-      
-      // Perform the analysis
-      console.log('Analyzing audio content...');
-      const analysisResult = await analyzer.analyzeStructure(audioBuffer);
-      
-      // Store the transients for visualization
-      const detectedTransients = analysisResult.transients;
-      console.log(`Detected ${detectedTransients.length} transients`);
-      
-      // Clear any existing transient markers
-      clearTransientMarkers();
-      
-      // Create markers for detected transients
-      detectedTransients.forEach((time, index) => {
-        createTransientMarker(time, index, detectedTransients.length);
-      });
-      
-      // Get the song sections
-      const sections = analysisResult.sections;
-      
-      // Ensure sections don't extend beyond the song duration
-      const validSections = sections.filter(section => {
-        // Check if section is valid
-        const isValid = section.start >= 0 &&
-                        section.end <= duration &&
-                        section.start < section.end;
-        
-        if (!isValid) {
-          console.warn(`Invalid section: ${section.name} (${section.start}-${section.end})`);
-        }
-        
-        return isValid;
-      });
-      
-      console.log(`Found ${validSections.length} valid sections out of ${sections.length} total`);
-      
-      // Create the visual display of the structure
-      showStructureOverlay = true;
-      
-      // Create a deep copy for UI purposes with percentage calculations
-      const uiStructure = validSections.map(section => ({
-        ...section,
-        startPercent: (section.start / duration) * 100,
-        widthPercent: ((section.end - section.start) / duration) * 100
-      }));
-      
-      // Update the song structure in the UI
-      songStructure = uiStructure;
-      
-      console.log('Song structure created:', uiStructure);
-    } catch (error) {
-      console.error('Error analyzing audio:', error);
-      
-      // Fallback to a simple structure without regions
-      try {
-        const duration = wavesurfer.getDuration();
-        songStructure = [{
-          id: 'fallback-section',
-          name: 'Full Track',
-          start: 0,
-          end: duration,
-          color: 'rgba(0, 184, 169, 0.5)', // teal
-          startPercent: 0,
-          widthPercent: 100
-        }];
-        showStructureOverlay = true;
-      } catch (e) {
-        console.error('Final fallback failed:', e);
-      }
-    } finally {
-      isAnalyzing = false;
-    }
-  }
-  
-  // Helper function to clear all regions
-  function clearRegions() {
-    // Clear existing regions
-    if (regions.length > 0) {
-      regions.forEach(region => {
-        try {
-          if (region && region.remove) {
-            region.remove();
-          }
-        } catch (e) {
-          console.log('Error removing region:', e);
-        }
-      });
-      regions = [];
-    }
-  }
-  
-  // Jump to a specific section in the song
-  function jumpToSection(sectionId) {
-    if (!wavesurfer) return;
-    
-    const section = songStructure.find(s => s.id === sectionId);
-    if (section) {
-      wavesurfer.seekTo(section.start / duration);
-      currentTime = section.start;
-      // Highlight the active region visually
-      regions.forEach(region => {
-        if (region.id === sectionId) {
-          activeRegion = region;
-          region.setOptions({ opacity: 0.5 });
-        } else {
-          region.setOptions({ opacity: 0.3 });
-        }
-      });
-    }
-  }
-  
-  // Update audio URL when prop changes
-  $: {
-    if (wavesurfer && audioUrl) {
-      loadAudio(audioUrl);
-    }
-  }
-  
-  // Detect transients in audio file
-  async function detectTransients() {
-    if (!wavesurfer || !isLoaded || isDetectingTransients) return;
-    
-    isDetectingTransients = true;
-    
-    try {
-      // First clean up any existing transient markers
-      clearTransientMarkers();
-      
-      // Get audio buffer from wavesurfer
-      const audioBuffer = wavesurfer.getDecodedData();
-      if (!audioBuffer) {
-        console.error('No audio data available');
-        return;
-      }
-      
-      // Create a transient detector with our current settings
-      const detector = new TransientDetector({
-        density: transientDensity,
-        randomness: transientRandomness,
-        sensitivity: transientSensitivity,
-        minSpacing: transientMinSpacing
-      });
-      
-      // Detect transients
-      const transients = detector.detectTransients(audioBuffer);
-      
-      // Store the detected transients for later use
-      detectedTransients = transients;
-      
-      console.log(`Detected ${transients.length} transients with density ${transientDensity}, randomness ${transientRandomness}, sensitivity ${transientSensitivity}, min spacing ${transientMinSpacing}s`);
-      
-      // Create markers for detected transients
-      transients.forEach((time, index) => {
-        createTransientMarker(time, index, transients.length);
-      });
-      
-    } catch (err) {
-      console.error('Error detecting transients:', err);
-    } finally {
-      isDetectingTransients = false;
-    }
-  }
-  
-  // Create a marker for a detected transient
-  function createTransientMarker(time, index, total) {
-    if (!wavesurfer || !regionsPlugin) return;
-    
-    const position = index / total; // Normalized position (0-1) for color gradient
-    const markerId = `transient-${Math.random().toString(36).substring(2, 9)}`;
-    const markerColor = generateTransientColor(position);
-    
-    // Create a marker using a region
-    const marker = regionsPlugin.addRegion({
-      id: markerId,
-      start: time,
-      end: time + 0.01, // Very small to act as a marker
-      color: markerColor,
-      drag: false,
-      resize: false,
-      data: { 
-        type: 'transient',
-        index: index + 1,
-        timestamp: formatTime(time)
-      }
-    });
-    
-    // Style the marker
-    marker.element.style.width = '1px';
-    marker.element.style.borderRadius = '0';
-    marker.element.style.opacity = '0.8';
-    
-    // Store the marker
-    transientMarkers.push(marker);
-  }
-  
-  // Clear all transient markers
-  function clearTransientMarkers() {
-    if (transientMarkers.length > 0) {
-      transientMarkers.forEach(marker => {
-        try {
-          if (marker && marker.remove) {
-            marker.remove();
-          }
-        } catch (e) {
-          console.log('Error removing transient marker:', e);
-        }
-      });
-      transientMarkers = [];
-    }
-  }
-  
-  // Detect BPM (tempo) of the audio
-  async function detectBPM() {
-    if (!wavesurfer || !isLoaded || isDetectingBPM) return;
-    
-    isDetectingBPM = true;
-    
-    try {
-      // First clean up any existing beat markers
-      clearBeatMarkers();
-      
-      // Get audio buffer from wavesurfer
-      const audioBuffer = wavesurfer.getDecodedData();
-      if (!audioBuffer) {
-        console.error('No audio data available');
-        return;
-      }
-      
-      // Create a BPM detector with fixed settings
-      const detector = new BPMDetector({
-        minBPM: 60,
-        maxBPM: 200,
-        sensitivity: 70
-      });
-      
-      // Detect BPM
-      const result = detector.detectBPM(audioBuffer);
-      
-      // Update state with detected BPM
-      detectedBPM = result.bpm;
-      bpmConfidence = result.confidence;
-      
-      console.log(`Detected BPM: ${detectedBPM} (confidence: ${(bpmConfidence * 100).toFixed(1)}%)`);
-      
-      // Force BPM to 122 for the test song as requested by the user
-      if (Math.abs(detectedBPM - 122) < 10) {
-        detectedBPM = 122;
-        console.log("Adjusted BPM to 122 based on known value");
-      }
-      
-      // Detect the key immediately after BPM detection
-      detectKey();
-      
-    } catch (err) {
-      console.error('Error detecting BPM:', err);
-    } finally {
-      isDetectingBPM = false;
-    }
-  }
-  
-  // Detect musical key of the audio
-  async function detectKey() {
-    if (!wavesurfer || !isLoaded) return;
-    
-    isDetectingKey = true;
-    
-    try {
-      // Get audio buffer from wavesurfer
-      const audioBuffer = wavesurfer.getDecodedData();
-      if (!audioBuffer) {
-        console.error('No audio data available');
-        return;
-      }
-      
-      // Create a key detector
-      const detector = new KeyDetector();
-      
-      // Detect key
-      const result = detector.detectKey(audioBuffer);
-      
-      // Update state with detected key
-      detectedKey = result.key;
-      detectedMode = result.mode;
-      keyConfidence = result.confidence;
-      
-      console.log(`Detected key: ${detectedKey} ${detectedMode} (confidence: ${(keyConfidence * 100).toFixed(1)}%)`);
-      
-      // Force a UI update with a slight delay to ensure reactivity
-      setTimeout(() => {
-        detectedKey = result.key;
-        detectedMode = result.mode;
-      }, 100);
-      
-    } catch (err) {
-      console.error('Error detecting key:', err);
-    } finally {
-      isDetectingKey = false;
-    }
-  }
-  
-  // Create a marker for a detected beat
-  function createBeatMarker(time, index, total) {
-    if (!wavesurfer || !regionsPlugin) return;
-    
-    const markerId = `beat-${Math.random().toString(36).substring(2, 9)}`;
-    const markerColor = 'rgba(204, 255, 0, 0.7)'; // Yellow-green color for beats
-    
-    // Create a marker using a region
-    const marker = regionsPlugin.addRegion({
-      id: markerId,
-      start: time,
-      end: time + 0.01, // Very small to act as a marker
-      color: markerColor,
-      drag: false,
-      resize: false,
-      data: {
-        type: 'beat',
-        index: index + 1,
-        timestamp: formatTime(time)
-      }
-    });
-    
-    // Style the marker
-    marker.element.style.width = '1px';
-    marker.element.style.borderRadius = '0';
-    marker.element.style.opacity = '0.5';
-    
-    // Store the marker
-    beatMarkers.push(marker);
-  }
-  
-  // Clear all beat markers
-  function clearBeatMarkers() {
-    if (beatMarkers.length > 0) {
-      beatMarkers.forEach(marker => {
-        try {
-          if (marker && marker.remove) {
-            marker.remove();
-          }
-        } catch (e) {
-          console.log('Error removing beat marker:', e);
-        }
-      });
-      beatMarkers = [];
-    }
-  }
-  
-  // Find the nearest snap point based on current snap settings
-  function findNearestSnapPoint(time) {
-    if (!snapEnabled || snapTo === 'none') {
-      return time;
-    }
-    
-    let snapPoints = [];
-    
-    if (snapTo === 'transients') {
-      // Use the stored transient times directly
-      if (detectedTransients && detectedTransients.length > 0) {
-        snapPoints = detectedTransients;
-      } else if (transientMarkers && transientMarkers.length > 0) {
-        // Fallback to transient markers if no stored transients
-        snapPoints = transientMarkers.map(marker => marker.start);
-      }
-    } else if (snapTo === 'beats') {
-      // Calculate beat positions based on detected BPM
-      if (detectedBPM > 0) {
-        const beatInterval = 60 / detectedBPM; // Time between beats in seconds
-        snapPoints = [];
-        
-        // Generate beats starting from 0
-        for (let time = 0; time < duration; time += beatInterval) {
-          snapPoints.push(time);
-        }
-      }
-    }
-    
-    // Log for debugging
-    console.log(`Snapping to ${snapTo}, found ${snapPoints.length} snap points`);
-    
-    if (snapPoints.length === 0) {
-      return time;
-    }
-    
-    // Find the closest snap point
-    let closestPoint = snapPoints[0];
-    let minDistance = Math.abs(time - closestPoint);
-    
-    for (let i = 1; i < snapPoints.length; i++) {
-      const distance = Math.abs(time - snapPoints[i]);
-      if (distance < minDistance) {
-        minDistance = distance;
-        closestPoint = snapPoints[i];
-      }
-    }
-    
-    // Only snap if within threshold
-    if (minDistance <= snapThreshold) {
-      return closestPoint;
-    }
-    
-    return time;
-  }
-  
-  // Check if the current playback position is close to any transient marker
-  function checkTransientHit(time) {
-    if (!isPlaying || transientMarkers.length === 0) return;
-    
-    // Define "hit" tolerance in seconds
-    const hitTolerance = 0.05; // 50ms tolerance
-    
-    // Check if we're within the tolerance of any transient marker
-    const isHit = transientMarkers.some(marker =>
-      Math.abs(marker.start - time) < hitTolerance
-    );
-    
-    // If we hit a marker and we're not already in a hit state
-    if (isHit && !isTransientHit) {
-      // Set hit state
-      isTransientHit = true;
-      
-      // Clear any existing timeout
-      if (transientHitTimeout) {
-        clearTimeout(transientHitTimeout);
-      }
-      
-      // Set timeout to turn off the hit indicator after a short time
-      transientHitTimeout = setTimeout(() => {
-        isTransientHit = false;
-      }, 150); // Light stays on for 150ms
+
+  function playRegion(region) {
+    if (wavesurfer) {
+      selectedRegion = region;
+      wavesurfer.setTime(region.start);
+      wavesurfer.play();
     }
   }
 </script>
 
 <style>
-  /* Dark mode theme */
-  .audio-timeline {
-    width: 100%;
-    padding: 15px;
-    background-color: #1e1e1e;
-    border-radius: 8px;
-    margin-bottom: 20px;
-    color: #e4e4e7; /* zinc-200 */
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-    overflow-x: hidden;
-  }
-  
-  .project-header {
-    display: flex;
-    justify-content: center;
-    margin-bottom: 15px;
-  }
-  
-  .project-title {
-    font-size: 18px;
-    font-weight: 600;
-    cursor: pointer;
-    padding: 5px 10px;
-    border-radius: 4px;
-    color: #e4e4e7; /* zinc-200 */
-    transition: background-color 0.2s;
-    display: inline-block;
-  }
-  
-  .project-title:hover {
-    background-color: rgba(255, 255, 255, 0.05);
-  }
-  
-  .title-input {
-    background-color: #27272a; /* zinc-800 */
-    border: 1px solid #52525b; /* zinc-600 */
-    color: #e4e4e7; /* zinc-200 */
-    font-size: 18px;
-    padding: 5px 10px;
-    border-radius: 4px;
-    text-align: center;
-  }
-  
-  .title-input:focus {
-    outline: none;
-    border-color: #00b8a9;
-  }
-
-  .waveform-container {
-    width: 100%;
-    background-color: #18181b; /* zinc-900 */
-    border-radius: 8px;
-    overflow: hidden;
-    position: relative;
-    background-color: #121212;
-    box-sizing: border-box;
-    max-width: 100%;
-  }
-
   .timeline-container {
-    width: 100%;
-    height: 30px;
-    background-color: #27272a; /* zinc-800 */
-    border-bottom-left-radius: 8px;
-    border-bottom-right-radius: 8px;
-    border-top: 1px solid #3f3f46; /* zinc-700 */
-    overflow: hidden;
-    box-sizing: border-box;
+    background-color: #1a1a1a;
+    border-radius: 4px;
+    padding: 20px;
+    margin-top: 20px;
   }
 
   .controls {
     display: flex;
-    align-items: center;
-    margin-bottom: 15px;
-    flex-wrap: wrap;
     gap: 10px;
-  }
-
-  .transport-controls {
-    display: flex;
-    gap: 5px;
+    margin-bottom: 15px;
   }
 
   .button {
-    background-color: #121212;
+    background-color: #2a2a2a;
     color: #e6e6e6;
-    border: 1px solid #333;
-    border-radius: 3px;
-    padding: 4px 8px;
-    font-size: 11px;
-    font-weight: 500;
+    border: 1px solid #3f3f46;
+    border-radius: 4px;
+    padding: 8px 12px;
     cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: all 0.2s ease;
-    letter-spacing: 0.5px;
-    font-family: 'Inter', sans-serif;
-    text-transform: uppercase;
-    min-width: 70px;
+    font-size: 14px;
+    transition: all 0.2s;
   }
 
   .button:hover {
-    background-color: #1a1a1a;
-    transform: translateY(-1px);
-    box-shadow: 0 3px 6px rgba(0, 0, 0, 0.5);
+    background-color: #3a3a3a;
     border-color: #00b8a9;
   }
 
-  .button:active {
-    transform: translateY(0);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.5);
-  }
-
-  .button:disabled {
-    background-color: #1a1a1a;
-    border-color: #333;
-    color: #666;
-    cursor: not-allowed;
-    transform: none;
-    box-shadow: none;
-  }
-
-  .time-info {
-    font-size: 14px;
-    color: #a1a1aa; /* zinc-400 */
-    margin: 0 10px;
-    min-width: 100px;
-    font-weight: 500;
-  }
-
-  .slider-container {
-    display: flex;
-    align-items: center;
-    margin-left: 10px;
-  }
-
-  .slider-label {
-    margin-right: 5px;
-    font-size: 14px;
-    color: #a1a1aa; /* zinc-400 */
-    font-weight: 500;
-  }
-
-  .slider {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 80px;
-    height: 4px;
-    border-radius: 2px;
-    background: #333;
-    outline: none;
-  }
-
-  .slider-teal::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    appearance: none;
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    background: #00b8a9;
-    cursor: pointer;
-  }
-  
-  .slider-teal::-moz-range-thumb {
-    width: 10px;
-    height: 10px;
-    border-radius: 2px;
-    background: #00b8a9;
-    cursor: pointer;
-    border: none;
-  }
-
-  .region-controls {
-    display: flex;
-    align-items: center;
-    margin-top: 15px;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .analyze-button {
+  .button.active {
     background-color: #00b8a9;
     color: #121212;
     border-color: transparent;
   }
 
-  .analyze-button:hover {
-    background-color: #00cebb;
-    box-shadow: 0 3px 8px rgba(0, 184, 169, 0.4);
+  .time-display {
+    font-family: monospace;
+    color: #888;
+    margin-left: 10px;
+    font-size: 14px;
   }
 
-  .analyze-button:active {
-    background-color: #00a396;
-  }
-
-  .analyze-button:disabled {
-    background-color: #1a1a1a;
-    color: #666;
-    border-color: #333;
-  }
-
-  .song-structure {
-    margin-top: 20px;
-    padding: 15px;
-    background-color: #18181b; /* zinc-900 */
-    border-radius: 8px;
-    border: 1px solid #3f3f46; /* zinc-700 */
-  }
-
-  .structure-overlay {
-    position: relative;
-    height: 30px;
-    width: 100%;
-    background-color: #27272a; /* zinc-800 */
+  .waveform {
+    background-color: #121212;
     border-radius: 4px;
-    margin-bottom: 10px;
-    overflow: hidden;
-    border: 1px solid #3f3f46; /* zinc-700 */
-  }
-  
-  /* Used in the song section display */
-  .section-item {
-    background-color: rgba(0, 184, 169, 0.15);
-    padding: 4px 6px;
-    border-radius: 3px;
-    margin-bottom: 3px;
-    cursor: pointer;
-    font-size: 11px;
-    border: 1px solid rgba(0, 184, 169, 0.3);
-  }
-
-  .structure-section {
-    position: absolute;
-    top: 0;
-    height: 100%;
-    min-width: 2px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    border-right: 1px solid rgba(255, 255, 255, 0.3);
-  }
-  
-  .section-label {
-    color: white;
-    font-size: 10px;
-    font-weight: bold;
-    white-space: nowrap;
-    text-shadow: 0 0 2px rgba(0, 0, 0, 0.7);
-    padding: 0 4px;
-  }
-
-  .song-structure h3 {
-    margin-top: 0;
-    margin-bottom: 10px;
-    font-size: 14px;
-    color: #e6e6e6;
-  }
-  
-  .structure-sections {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
-  }
-  
-  .section-button {
-    padding: 3px 6px;
-    border: none;
-    border-radius: 2px;
-    color: #fff;
-    font-size: 10px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    background-color: rgba(0, 134, 124, 0.7);
-    border: 1px solid rgba(0, 184, 169, 0.3);
-  }
-  
-  .section-button:hover {
-    opacity: 0.9;
-    transform: translateY(-1px);
-  }
-  
-  .loading {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    height: 100px;
-    width: 100%;
-    font-style: italic;
-    color: #666;
-  }
-
-  .marker-item {
-    position: absolute;
-    bottom: 30px;
-    transform: translateX(-50%);
-    background-color: #2d2d2d;
-    border-radius: 3px;
-    padding: 2px 4px;
-    font-size: 9px;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    white-space: nowrap;
-    z-index: 10;
-    cursor: pointer;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
-    transition: transform 0.2s ease;
-  }
-  
-  .marker-item:hover {
-    transform: translateX(-50%) translateY(-2px);
-    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.5);
-  }
-  
-  .marker-timestamp {
-    color: #e4e4e7;
-    font-weight: 500;
-  }
-  
-  .marker-number {
-    opacity: 0.8;
-    margin-right: 3px;
-  }
-  
-  .marker-indicator {
-    position: absolute;
-    width: 2px;
-    height: 100%;
-    top: 0;
-    transform: translateX(-50%);
-  }
-  
-  .marker-delete {
-    background: none;
-    border: none;
-    color: #ff6b6b;
-    cursor: pointer;
-    font-size: 11px;
-    padding: 0 0 0 3px;
-    margin-left: 3px;
-    line-height: 1;
-    opacity: 0.6;
-  }
-  
-  .marker-delete:hover {
-    opacity: 1;
-  }
-
-  .marker-button {
-    background-color: #4b5eab; /* Blue-purple shade */
-    color: white;
-    border-color: transparent;
-  }
-  
-  .marker-button:hover {
-    background-color: #5b6ecb;
-    box-shadow: 0 3px 8px rgba(75, 94, 171, 0.4);
-  }
-  
-  .marker-button:active {
-    background-color: #3b4e9b;
-  }
-  
-  .marker-button:disabled {
-    background-color: #1a1a1a;
-    color: #666;
-    border-color: #333;
-  }
-  
-  .transient-controls {
-    margin-top: 20px;
-    padding: 15px;
-    background-color: #18181b; /* zinc-900 */
-    border-radius: 8px;
-    border: 1px solid #3f3f46; /* zinc-700 */
-  }
-  
-  .transient-controls h3 {
-    margin-top: 0;
+    padding: 10px;
     margin-bottom: 15px;
-    font-size: 14px;
-    color: #e6e6e6;
   }
-  
-  .transient-sliders {
-    display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 10px;
-  }
-  
-  @media (max-width: 992px) {
-    .transient-sliders {
-      grid-template-columns: repeat(2, 1fr);
-    }
-  }
-  
-  @media (max-width: 576px) {
-    .transient-sliders {
-      grid-template-columns: 1fr;
-    }
-  }
-  
-  .slider-group {
+
+  .sections {
     display: flex;
     flex-direction: column;
-    gap: 5px;
-  }
-  
-  .slider-group label {
-    font-size: 12px;
-    color: #a1a1aa;
-  }
-  
-  .slider-value {
-    font-size: 11px;
-    color: #a1a1aa;
-    margin-left: 5px;
-    opacity: 0.8;
-  }
-  
-  .detect-button {
-    background-color: #e9b83c; /* amber/yellow */
-    color: #121212;
-    border-color: transparent;
+    gap: 10px;
     margin-top: 15px;
   }
-  
-  .detect-button:hover {
-    background-color: #f9d862;
-    box-shadow: 0 3px 8px rgba(233, 184, 60, 0.4);
+
+  .section-group {
+    border-top: 1px solid #333;
+    padding-top: 15px;
   }
-  
-  .detect-button:active {
-    background-color: #d9a82c;
+
+  .section-group-title {
+    color: #888;
+    font-size: 12px;
+    margin-bottom: 10px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
   }
-  
-  .detect-button:disabled {
-    background-color: #1a1a1a;
-    color: #666;
-    border-color: #333;
-  }
-  
-  .transient-header {
+
+  .section-button {
+    background-color: transparent;
+    border: none;
+    color: #e6e6e6;
+    padding: 8px;
+    cursor: pointer;
+    width: 100%;
+    text-align: left;
+    border-radius: 4px;
+    transition: background-color 0.2s;
     display: flex;
     justify-content: space-between;
     align-items: center;
-    margin-bottom: 15px;
   }
-  
-  .detection-indicator {
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background-color: #333;
-    border: 1px solid #444;
-    transition: all 0.1s ease;
-    position: relative;
+
+  .section-button:hover {
+    background-color: rgba(255, 255, 255, 0.1);
   }
-  
-  .detection-indicator.hit {
-    background-color: #f5a623; /* Orange/yellow */
-    box-shadow: 0 0 8px 2px rgba(245, 166, 35, 0.7);
-    border-color: #f5a623;
-  }
-  
-  .detection-indicator::after {
-    content: '';
-    position: absolute;
-    top: -2px;
-    left: -2px;
-    right: -2px;
-    bottom: -2px;
-    border-radius: 50%;
-    background: transparent;
-    border: 1px solid rgba(255, 255, 255, 0.2);
-    opacity: 0;
-    transition: opacity 0.2s ease;
-  }
-  
-  .detection-indicator.hit::after {
-    opacity: 1;
-  }
-  
-  .analysis-results {
-    display: flex;
-    gap: 10px;
-  }
-  
-  .bpm-display, .key-display {
-    background-color: #4b5eab;
-    color: white;
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 14px;
-    font-weight: bold;
-    margin-right: 8px;
-    display: inline-block;
-  }
-  
-  .key-display {
-    background-color: #00b8a9;
-  }
-  
-  .snap-controls {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-  }
-  
-  .snap-toggle {
-    margin-bottom: 5px;
-  }
-  
-  .snap-options {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 15px;
-    margin-bottom: 10px;
-  }
-  
-  .snap-options label {
-    display: flex;
-    align-items: center;
-    gap: 5px;
+
+  .section-time {
+    color: #888;
     font-size: 12px;
-    color: #a1a1aa;
   }
-  
-  input[type="checkbox"],
-  input[type="radio"] {
-    accent-color: #00b8a9;
+
+  .marker-points {
+    display: flex;
+    gap: 10px;
+    margin-top: 10px;
+    padding: 10px;
+    background-color: #2a2a2a;
+    border-radius: 4px;
+  }
+
+  .marker-point {
+    color: #888;
+    font-family: monospace;
+    font-size: 12px;
+  }
+
+  .marker-point.active {
+    color: #00b8a9;
   }
 </style>
 
-<div class="audio-timeline">
-  <!-- Project title editor (from AudioEditor) -->
-  <div class="project-header">
-    {#if isEditingTitle}
-      <input
-        type="text"
-        class="title-input"
-        bind:value={projectName}
-        on:blur={handleTitleBlur}
-        on:keydown={handleTitleKeydown}
-      />
-    {:else}
-      <div 
-        class="project-title" 
-        on:click={toggleTitleEdit}
-        on:keydown={(e) => e.key === 'Enter' && toggleTitleEdit()}
-        tabindex="0"
-        role="button"
-        aria-label="Edit project title">
-        {projectName}
+<div class="timeline-container">
+  <div class="controls">
+    <button class="button" on:click={togglePlayPause}>
+      {isPlaying ? 'Pause' : 'Play'}
+    </button>
+    <button class="button" on:click={addTimestamp}>
+      Add Timestamp
+    </button>
+    <button 
+      class="button {isLooping ? 'active' : ''}" 
+      on:click={toggleLoop}
+    >
+      Loop Region
+    </button>
+    <span class="time-display">
+      {formatTime(currentTime)} / {formatTime(duration)}
+    </span>
+  </div>
+
+  <div class="marker-points">
+    <div class="marker-point {inPoint !== null ? 'active' : ''}">
+      In: {inPoint !== null ? formatTime(inPoint) : '--:--'}
+    </div>
+    <div class="marker-point {outPoint !== null ? 'active' : ''}">
+      Out: {outPoint !== null ? formatTime(outPoint) : '--:--'}
+    </div>
+  </div>
+
+  <div class="waveform" bind:this={container}></div>
+
+  <div class="sections">
+    {#if customRegions.length > 0}
+      <div class="section-group">
+        <div class="section-group-title">Custom Regions</div>
+        {#each customRegions as region}
+          <button 
+            class="section-button"
+            style="background-color: {region.color}"
+            on:click={() => seekToRegion(region)}
+          >
+            <span>{region.name}</span>
+            <div>
+              <button 
+                class="button" 
+                on:click|stopPropagation={() => playRegion(region)}
+              >
+                Play
+              </button>
+              <button 
+                class="button" 
+                on:click|stopPropagation={() => exportRegion(region)}
+              >
+                Export
+              </button>
+            </div>
+          </button>
+        {/each}
+      </div>
+    {/if}
+
+    {#if sections.length > 0}
+      <div class="section-group">
+        <div class="section-group-title">Song Structure</div>
+        {#each sections as section}
+          <button 
+            class="section-button"
+            style="background-color: {section.color}"
+            on:click={() => seekToRegion(section)}
+          >
+            <span>{section.name}</span>
+            <span class="section-time">
+              {formatTime(section.start)} - {formatTime(section.end)}
+            </span>
+          </button>
+        {/each}
       </div>
     {/if}
   </div>
-  
-  <div class="waveform-container" bind:this={container} id={id}></div>
-  <div class="timeline-container" bind:this={timelineContainer} id={timelineId}></div>
-  
-  {#if !isLoaded && audioUrl}
-    <div class="loading">Loading audio waveform...</div>
-  {/if}
-  
-  <div class="controls">
-    <div class="transport-controls">
-      <button 
-        class="button" 
-        on:click={togglePlay}
-        aria-label={isPlaying ? 'Pause' : 'Play'}
-      >
-        {#if isPlaying}
-          Stop
-        {:else}
-          Play
-        {/if}
-      </button>
-    </div>
-    
-    <div class="time-info">
-      {formatTime(currentTime)} / {formatTime(duration)}
-    </div>
-    
-    <div class="slider-container">
-      <span class="slider-label">Volume</span>
-      <input
-        type="range"
-        class="slider slider-teal"
-        min="0"
-        max="1"
-        step="0.05"
-        bind:value={volume}
-        on:input={() => setVolume(volume)}
-      />
-    </div>
-
-    <div class="slider-container">
-      <span class="slider-label">Zoom</span>
-      <input
-        type="range"
-        class="slider slider-teal"
-        min="1"
-        max="20"
-        step="0.5"
-        bind:value={zoom}
-        on:input={() => setZoom(zoom)}
-      />
-    </div>
-  </div>
-  
-  <div class="region-controls">
-    <button
-      class="button"
-      on:click={createRegion}
-      disabled={!isLoaded}
-    >
-      Create Region
-    </button>
-
-    <button
-      class="button"
-      on:click={playRegion}
-      disabled={!activeRegion}
-    >
-      Play Region
-    </button>
-
-    <button
-      class="button"
-      on:click={deleteRegion}
-      disabled={!activeRegion}
-    >
-      Delete Region
-    </button>
-
-    <button
-      class="button"
-      on:click={exportRegion}
-      disabled={!activeRegion}
-    >
-      Export Region
-    </button>
-    
-    <button
-      class="button marker-button"
-      on:click={createMarker}
-      disabled={!isLoaded}
-    >
-      Add Timestamp
-    </button>
-    
-    <button
-      class="button analyze-button"
-      on:click={analyzeAudio}
-      disabled={!isLoaded || isAnalyzing}
-    >
-      {#if isAnalyzing}
-        <span class="loading"></span> Analyzing...
-      {:else}
-        Analyze Audio
-      {/if}
-    </button>
-  </div>
-  
-  <!-- Transient Detection Controls -->
-  <div class="transient-controls">
-    <div class="transient-header">
-      <h3>Transient Detection</h3>
-      <div class="detection-indicator" class:hit={isTransientHit}></div>
-    </div>
-    
-    <div class="transient-sliders">
-      <div class="slider-group">
-        <label for="density-slider">Density <span class="slider-value">{transientDensity}%</span></label>
-        <input
-          id="density-slider"
-          type="range"
-          class="slider slider-teal"
-          min="1"
-          max="100"
-          bind:value={transientDensity}
-        />
-      </div>
-      
-      <div class="slider-group">
-        <label for="randomness-slider">Randomness <span class="slider-value">{transientRandomness}%</span></label>
-        <input
-          id="randomness-slider"
-          type="range"
-          class="slider slider-teal"
-          min="0"
-          max="100"
-          bind:value={transientRandomness}
-        />
-      </div>
-      
-      <div class="slider-group">
-        <label for="sensitivity-slider">Sensitivity <span class="slider-value">{transientSensitivity}%</span></label>
-        <input
-          id="sensitivity-slider"
-          type="range"
-          class="slider slider-teal"
-          min="1"
-          max="100"
-          bind:value={transientSensitivity}
-        />
-      </div>
-      
-      <div class="slider-group">
-        <label for="spacing-slider">Min Spacing <span class="slider-value">{transientMinSpacing.toFixed(2)}s</span></label>
-        <input
-          id="spacing-slider"
-          type="range"
-          class="slider slider-teal"
-          min="0"
-          max="2"
-          step="0.05"
-          bind:value={transientMinSpacing}
-        />
-      </div>
-    </div>
-    
-    <button
-      class="button detect-button"
-      on:click={detectTransients}
-      disabled={!isLoaded || isDetectingTransients}
-    >
-      {#if isDetectingTransients}
-        <span class="loading"></span> Detecting Transients...
-      {:else}
-        Detect Transients
-      {/if}
-    </button>
-  </div>
-  
-  <!-- BPM and Key Detection Controls -->
-  <div class="transient-controls">
-    <div class="transient-header">
-      <h3>Audio Analysis</h3>
-      <div class="analysis-results">
-        {#if detectedBPM > 0}
-          <div class="bpm-display">{detectedBPM} BPM</div>
-        {/if}
-        {#if detectedKey}
-          <div class="key-display">{detectedKey} {detectedMode}</div>
-        {/if}
-      </div>
-    </div>
-    
-    <button
-      class="button detect-button"
-      style="background-color: #4b5eab;"
-      on:click={detectBPM}
-      disabled={!isLoaded || isDetectingBPM || isDetectingKey}
-    >
-      {#if isDetectingBPM || isDetectingKey}
-        <span class="loading"></span> Analyzing Audio...
-      {:else}
-        Detect BPM & Key
-      {/if}
-    </button>
-  </div>
-  
-  <!-- Snapping Controls -->
-  <div class="transient-controls">
-    <div class="transient-header">
-      <h3>Marker Snapping</h3>
-    </div>
-    
-    <div class="snap-controls">
-      <div class="snap-toggle">
-        <label>
-          <input type="checkbox" bind:checked={snapEnabled} />
-          Enable Snapping
-        </label>
-      </div>
-      
-      <div class="snap-options">
-        <label>
-          <input type="radio" bind:group={snapTo} value="transients" />
-          Snap to Transients
-        </label>
-        
-        <label>
-          <input type="radio" bind:group={snapTo} value="beats" />
-          Snap to Beats
-        </label>
-        
-        <label>
-          <input type="radio" bind:group={snapTo} value="none" />
-          No Snapping
-        </label>
-      </div>
-      
-      <div class="slider-group">
-        <label for="snap-threshold-slider">Snap Threshold <span class="slider-value">{snapThreshold.toFixed(2)}s</span></label>
-        <input
-          id="snap-threshold-slider"
-          type="range"
-          class="slider slider-teal"
-          min="0.05"
-          max="1"
-          step="0.05"
-          bind:value={snapThreshold}
-        />
-      </div>
-    </div>
-  </div>
-  
-  {#if songStructure.length > 0}
-    <div class="song-structure">
-      <h3>Song Structure</h3>
-      
-      {#if showStructureOverlay}
-        <div class="structure-overlay">
-          {#each songStructure as section}
-            <div 
-              class="structure-section" 
-              style="left: {section.startPercent}%; width: {section.widthPercent}%; background-color: {section.color};"
-              title="{section.name}: {formatTime(section.start)} - {formatTime(section.end)}"
-            >
-              <span class="section-label">{section.name}</span>
-            </div>
-          {/each}
-          
-          <!-- Render user-created markers -->
-          {#each markers as marker}
-            <div
-              class="marker-indicator"
-              style="left: {(marker.start / duration) * 100}%; background-color: {marker.color};"
-            ></div>
-            <div 
-              class="marker-item"
-              style="left: {(marker.start / duration) * 100}%; border-color: {marker.color};"
-            >
-              <span class="marker-number">{marker.data && marker.data.number ? marker.data.number.toFixed(1) : ''}</span>
-              <span class="marker-timestamp">{marker.data && marker.data.timestamp ? marker.data.timestamp : formatTime(marker.start)}</span>
-              <button 
-                class="marker-delete" 
-                aria-label="Delete marker"
-                on:click={() => deleteMarker(marker.id)}
-              >
-                ×
-              </button>
-            </div>
-          {/each}
-          
-          <!-- Render transient markers (just the indicator lines, not the labels to avoid clutter) -->
-          {#each transientMarkers as marker}
-            <div
-              class="marker-indicator transient-indicator"
-              style="left: {(marker.start / duration) * 100}%; background-color: {marker.color}; opacity: 0.6;"
-              title="Transient at {marker.data && marker.data.timestamp ? marker.data.timestamp : formatTime(marker.start)}"
-            ></div>
-          {/each}
-        </div>
-      {/if}
-      
-      <div class="structure-sections">
-        {#each songStructure as section}
-          <div class="section-item">
-            <button 
-              class="section-button"
-              style="background-color: {section.color};"
-              on:click={() => jumpToSection(section.id)}
-            >
-              {section.name} ({formatTime(section.start)} - {formatTime(section.end)})
-            </button>
-          </div>
-        {/each}
-      </div>
-    </div>
-  {/if}
-  
-  <!-- File upload is handled by AudioFileManager component -->
 </div>
 
-<!-- Export Dialog -->
-<ExportDialog 
-  bind:show={showExportDialog}
-  region={activeRegion}
-  projectName={projectName}
+<ExportDialog
+  show={showExportDialog}
+  region={selectedRegion}
+  bind:projectName={projectName}
   on:export={handleExport}
 />
-
-<!-- Audio Visualizer (now without its own play button) -->
-{#if isLoaded && audioUrl}
-  <AudioVisualizer audioUrl={audioUrl} />
-{/if}
