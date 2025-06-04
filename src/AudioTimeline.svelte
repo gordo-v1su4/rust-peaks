@@ -130,7 +130,7 @@
       id: `custom-${Date.now()}`,
       start,
       end,
-      color: 'rgba(100, 100, 255, 0.2)',
+      color: 'rgba(0, 184, 169, 0.2)',
       name: `Custom (${formatTime(start)} - ${formatTime(end)})`
     };
 
@@ -304,6 +304,16 @@
   .marker-point.active {
     color: #00b8a9;
   }
+
+  .button-group {
+    display: flex;
+    gap: 5px;
+  }
+
+  .button-group .button {
+    padding: 4px 8px;
+    font-size: 12px;
+  }
 </style>
 
 <div class="timeline-container">
@@ -347,7 +357,7 @@
             on:click={() => seekToRegion(region)}
           >
             <span>{region.name}</span>
-            <div>
+            <div class="button-group">
               <button 
                 class="button" 
                 on:click|stopPropagation={() => playRegion(region)}
