@@ -1,8 +1,13 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import Peaks from 'peaks.js';
-  import AudioVisualizer from './AudioVisualizer.svelte';
-  import { TransientDetector, EssentiaBPMDetector, EssentiaKeyDetector } from './lib/audio-analysis/index.js';
+  import {
+    TransientDetector,
+    EssentiaBPMDetector,
+    EssentiaKeyDetector,
+    SongStructureAnalyzer,
+    SpectralAnalyzer
+  } from './lib/audio-analysis/index.js';
   
   // Props
   export let audioUrl = null;
@@ -41,6 +46,9 @@
   let detectedBPM = null;
   let detectedKey = null;
   let detectedMode = null;
+
+  let songStructureAnalyzer;
+  let spectralAnalyzer;
   
   onMount(() => {
     if (!zoomviewContainer || !overviewContainer || !audioElement) return;
@@ -51,6 +59,8 @@
     // Load audio and initialize Peaks.js
     if (audioUrl) {
       loadAudio(audioUrl);
+    } else {
+      loadAudio('sample.mp3');
     }
   });
   
@@ -287,130 +297,70 @@
   }
   
   // Audio analysis methods
-  function analyzeAudio() {
-    console.log('Analyze Audio button clicked');
-    console.log('Peaks.js instance:', peaks);
-    console.log('Audio buffer:', audioBuffer);
-    
-    if (!peaks) {
-      console.error('Peaks.js instance is not available');
-      return;
-    }
-    
-    if (!audioBuffer) {
-      console.error('Audio buffer is not available');
-      return;
-    }
-    
-    // Initialize detectors if needed
-    if (!transientDetector) {
-      console.log('Initializing TransientDetector');
-      transientDetector = new TransientDetector({
-        density: transientDensity,
-        randomness: transientRandomness,
-        sensitivity: transientSensitivity,
-        minSpacing: transientMinSpacing
-      });
-    }
-    
+  async function runBPMDetection() {
+    if (!audioBuffer) return;
     if (!bpmDetector) {
-      console.log('Initializing EssentiaBPMDetector');
       bpmDetector = new EssentiaBPMDetector();
     }
-    
+    const bpmResult = await bpmDetector.detectBPM(audioBuffer);
+    detectedBPM = bpmResult.bpm;
+    console.log(`Detected BPM: ${detectedBPM}`);
+  }
+
+  async function runKeyDetection() {
+    if (!audioBuffer) return;
     if (!keyDetector) {
-      console.log('Initializing EssentiaKeyDetector');
       keyDetector = new EssentiaKeyDetector();
     }
-    
-    // Detect transients
-    console.log('Detecting transients...');
-    detectTransients();
-    
-    // Detect BPM and key
-    console.log('Detecting BPM and key...');
-    detectBPMAndKey();
+    const keyResult = await keyDetector.detectKey(audioBuffer);
+    detectedKey = keyResult.key;
+    detectedMode = keyResult.mode;
+    console.log(`Detected Key: ${detectedKey} ${detectedMode}`);
+  }
+
+  async function runSongStructureAnalysis() {
+    if (!audioBuffer) return;
+    if (!songStructureAnalyzer) {
+      songStructureAnalyzer = new SongStructureAnalyzer();
+    }
+    const segments = await songStructureAnalyzer.analyze(audioBuffer);
+    peaks.segments.removeAll();
+    peaks.segments.add(segments.map(s => ({
+      startTime: s.start,
+      endTime: s.end,
+      labelText: s.label,
+      color: 'rgba(255, 165, 0, 0.3)'
+    })));
+    console.log('Song structure analysis complete');
+  }
+
+  async function runSpectralAnalysis() {
+    if (!audioBuffer) return;
+    if (!spectralAnalyzer) {
+      spectralAnalyzer = new SpectralAnalyzer();
+    }
+    const spectralData = await spectralAnalyzer.analyze(audioBuffer);
+    // For now, just log the spectral data
+    console.log('Spectral analysis complete:', spectralData);
+    // In a real app, you might visualize this data differently
+  }
+
+  async function runTransientDetection() {
+    if (!audioBuffer) return;
+    if (!transientDetector) {
+      transientDetector = new TransientDetector();
+    }
+    transients = transientDetector.detectTransients(audioBuffer);
+    peaks.points.removeAll();
+    peaks.points.add(transients.map(time => ({
+      time,
+      labelText: 'T',
+      color: '#ccff00'
+    })));
+    console.log(`Detected ${transients.length} transients`);
   }
   
-  async function detectTransients() {
-    console.log('detectTransients called');
-    
-    if (!peaks) {
-      console.error('Peaks.js instance is not available');
-      return;
-    }
-    
-    if (!audioBuffer) {
-      console.error('Audio buffer is not available');
-      return;
-    }
-    
-    try {
-      // Update transient detector settings
-      console.log('Updating transient detector settings');
-      transientDetector = new TransientDetector({
-        density: transientDensity,
-        randomness: transientRandomness,
-        sensitivity: transientSensitivity,
-        minSpacing: transientMinSpacing
-      });
-      
-      // Detect transients
-      console.log('Calling transientDetector.detectTransients with audioBuffer:', audioBuffer);
-      transients = transientDetector.detectTransients(audioBuffer);
-      console.log('Transients detected:', transients);
-      
-      // Clear existing point markers
-      peaks.points.removeAll();
-      
-      // Add point markers for transients
-      console.log('Adding point markers for transients');
-      transients.forEach(time => {
-        peaks.points.add({
-          time,
-          color: '#ccff00',
-          labelText: 'T'
-        });
-      });
-      
-      console.log(`Detected ${transients.length} transients`);
-    } catch (error) {
-      console.error('Error detecting transients:', error);
-    }
-  }
-  
-  async function detectBPMAndKey() {
-    console.log('detectBPMAndKey called');
-    
-    if (!peaks) {
-      console.error('Peaks.js instance is not available');
-      return;
-    }
-    
-    if (!audioBuffer) {
-      console.error('Audio buffer is not available');
-      return;
-    }
-    
-    try {
-      // Detect BPM
-      console.log('Calling bpmDetector.detectBPM with audioBuffer:', audioBuffer);
-      const bpmResult = await bpmDetector.detectBPM(audioBuffer);
-      console.log('BPM result:', bpmResult);
-      detectedBPM = bpmResult.bpm;
-      
-      // Detect key
-      console.log('Calling keyDetector.detectKey with audioBuffer:', audioBuffer);
-      const keyResult = await keyDetector.detectKey(audioBuffer);
-      console.log('Key result:', keyResult);
-      detectedKey = keyResult.key;
-      detectedMode = keyResult.mode;
-      
-      console.log(`Detected BPM: ${detectedBPM}, Key: ${detectedKey} ${detectedMode}`);
-    } catch (error) {
-      console.error('Error detecting BPM and key:', error);
-    }
-  }
+  //This code is no longer needed
   
   // Update audio URL when prop changes
   $: {
@@ -540,8 +490,15 @@
     gap: 10px;
     margin-bottom: 20px;
   }
+
+  .analysis-controls {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
   
-  .segment-controls button {
+  .segment-controls button, .analysis-controls button {
     font-size: 12px;
     padding: 6px 10px;
   }
@@ -667,7 +624,14 @@
       <button on:click={playSegment} disabled={!currentSegment}>Play Segment</button>
       <button on:click={deleteSegment} disabled={!currentSegment}>Delete Segment</button>
       <button on:click={exportSegment} disabled={!currentSegment}>Export Segment</button>
-      <button on:click={analyzeAudio} disabled={!isLoaded}>Analyze Audio</button>
+    </div>
+
+    <div class="analysis-controls">
+        <button on:click={runBPMDetection} disabled={!isLoaded}>BPM</button>
+        <button on:click={runKeyDetection} disabled={!isLoaded}>Key</button>
+        <button on:click={runSongStructureAnalysis} disabled={!isLoaded}>Structure</button>
+        <button on:click={runSpectralAnalysis} disabled={!isLoaded}>Spectrum</button>
+        <button on:click={runTransientDetection} disabled={!isLoaded}>Transients</button>
     </div>
     
     <!-- Transient detection controls -->
@@ -713,8 +677,4 @@
     </div>
   {/if}
 
-  <!-- Audio Visualizer -->
-  {#if isLoaded && audioUrl}
-    <AudioVisualizer audioUrl={audioUrl} />
-  {/if}
 </div>
