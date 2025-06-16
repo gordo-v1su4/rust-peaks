@@ -215,7 +215,9 @@
   >
     <div 
       class="dialog" 
+      tabindex="0"
       on:click|stopPropagation={() => {}}
+      on:keydown={handleKeydown}
     >
       <div class="dialog-header">
         <h3 class="dialog-title">Export Region</h3>

@@ -498,8 +498,9 @@
     </div>
 
     <div class="control-group">
-      <label>Volume</label>
+      <label for="volume-range">Volume</label>
       <input 
+        id="volume-range"
         type="range" 
         min="0" 
         max="100" 
@@ -509,8 +510,9 @@
     </div>
 
     <div class="control-group">
-      <label>Zoom</label>
+      <label for="zoom-range">Zoom</label>
       <input 
+        id="zoom-range"
         type="range" 
         min="1" 
         max="100" 
