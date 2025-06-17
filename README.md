@@ -42,18 +42,17 @@ The audio analysis module provides tools for analyzing audio files to identify s
 
 ```bash
 # Clone the repository
-git clone https://github.com/yourusername/audio-analysis-tool.git
-cd audio-analysis-tool
+
 
 # Install dependencies
-npm install
+pnpm install
 ```
 
 ### Development
 
 ```bash
 # Start the development server
-npm run dev
+pnpm run dev
 ```
 
 Navigate to [localhost:8080](http://localhost:8080) to see the application running.
@@ -62,7 +61,7 @@ Navigate to [localhost:8080](http://localhost:8080) to see the application runni
 
 ```bash
 # Create an optimized build
-npm run build
+pnpm run build
 ```
 
 ## Usage
@@ -83,3 +82,4 @@ npm run build
 ## License
 
 This project is licensed under the MIT License - see the LICENSE file for details.
+
